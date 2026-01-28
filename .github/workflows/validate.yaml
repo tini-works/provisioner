@@ -25,8 +25,8 @@ jobs:
       - name: Get changed provision files
         id: changes
         run: |
-          # Get list of changed provision.yaml files
-          files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} \
+          # Get list of added/modified provision.yaml files (exclude deleted)
+          files=$(git diff --name-only --diff-filter=AM ${{ github.event.pull_request.base.sha }} ${{ github.sha }} \
             | grep '^apps/.*/provision\.yaml$' || true)
 
           if [ -z "$files" ]; then
@@ -34,10 +34,9 @@ jobs:
             echo "files=" >> $GITHUB_OUTPUT
           else
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            # Convert to space-separated for passing to script
-            echo "files<<EOF" >> $GITHUB_OUTPUT
-            echo "$files" | tr '\n' ' ' >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            # Convert to space-separated, ensuring newline before EOF
+            files_space=$(echo "$files" | tr '\n' ' ' | xargs)
+            echo "files=$files_space" >> $GITHUB_OUTPUT
           fi
 
           echo "Changed files:"
@@ -130,8 +129,9 @@ jobs:
               exit 1
             fi
 
-            # Check blocked prefixes
-            if echo "$subdomain" | grep -qE "^(admin-|api-|internal-|system-|test-|dev-)"; then
+            # Check blocked prefixes (from config)
+            prefixes=$(grep -A100 "^blocked_prefixes:" config/reserved-subdomains.yaml | grep -E "^\s*-\s+" | sed 's/.*- //' | tr '\n' '|' | sed 's/|$//')
+            if [ -n "$prefixes" ] && echo "$subdomain" | grep -qE "^($prefixes)"; then
               echo "❌ ERROR: '$subdomain' matches a blocked prefix pattern"
               exit 1
             fi
