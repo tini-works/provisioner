@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       added_modified: ${{ steps.changes.outputs.added_modified }}
       deleted: ${{ steps.changes.outputs.deleted }}
@@ -60,7 +60,7 @@ jobs:
   provision:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_added_modified == 'true'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -91,7 +91,7 @@ jobs:
   deprovision:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_deleted == 'true'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:
@@ -134,7 +134,7 @@ jobs:
   summary:
     needs: [detect-changes, provision, deprovision]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Summary
         run: |
