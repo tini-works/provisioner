@@ -2,7 +2,7 @@ apiVersion: provisioner.quickable.co/v1
 kind: Application
 metadata:
   name: test-1234
-  description: "Sample app to test provisioner workflow"
+  description: "Sample app to test provisioner workflow (SSL fix)"
   maintainer: "@lagz0ne"
 spec:
   source:
