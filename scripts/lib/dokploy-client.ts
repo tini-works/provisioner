@@ -9,11 +9,13 @@ export interface DokployConfig {
 }
 
 // Resource quotas mapped to Dokploy format
-// Note: Dokploy expects memoryLimit as a string in Docker format (e.g., "512m", "1g")
+// Note: Dokploy uses parseInt() so we pass raw numeric strings:
+// - memoryLimit: bytes as string
+// - cpuLimit: nanocpus as string (1 CPU = 1e9 nanocpus)
 export const QUOTAS = {
-  S: { cpuLimit: 0.5, memoryLimit: "512m" }, // 512MB
-  M: { cpuLimit: 1, memoryLimit: "1g" }, // 1GB
-  L: { cpuLimit: 2, memoryLimit: "2g" }, // 2GB
+  S: { cpuLimit: "500000000", memoryLimit: "536870912" }, // 0.5 CPU, 512MB
+  M: { cpuLimit: "1000000000", memoryLimit: "1073741824" }, // 1 CPU, 1GB
+  L: { cpuLimit: "2000000000", memoryLimit: "2147483648" }, // 2 CPU, 2GB
 } as const;
 
 export type ResourceSize = keyof typeof QUOTAS;
@@ -296,7 +298,7 @@ export class DokployClient {
       method: "POST",
       body: JSON.stringify({
         applicationId,
-        cpuLimit: String(quota.cpuLimit),
+        cpuLimit: quota.cpuLimit,
         memoryLimit: quota.memoryLimit,
       }),
     });
