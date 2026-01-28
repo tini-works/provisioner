@@ -9,10 +9,11 @@ export interface DokployConfig {
 }
 
 // Resource quotas mapped to Dokploy format
+// Note: Dokploy expects memoryLimit as a string in Docker format (e.g., "512m", "1g")
 export const QUOTAS = {
-  S: { cpuLimit: 0.5, memoryLimit: 536870912, memoryLimitRaw: "512M" }, // 512MB in bytes
-  M: { cpuLimit: 1, memoryLimit: 1073741824, memoryLimitRaw: "1G" }, // 1GB in bytes
-  L: { cpuLimit: 2, memoryLimit: 2147483648, memoryLimitRaw: "2G" }, // 2GB in bytes
+  S: { cpuLimit: 0.5, memoryLimit: "512m" }, // 512MB
+  M: { cpuLimit: 1, memoryLimit: "1g" }, // 1GB
+  L: { cpuLimit: 2, memoryLimit: "2g" }, // 2GB
 } as const;
 
 export type ResourceSize = keyof typeof QUOTAS;
@@ -296,7 +297,7 @@ export class DokployClient {
       body: JSON.stringify({
         applicationId,
         cpuLimit: String(quota.cpuLimit),
-        memoryLimit: quota.memoryLimitRaw,
+        memoryLimit: quota.memoryLimit,
       }),
     });
   }
