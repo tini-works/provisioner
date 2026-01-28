@@ -153,15 +153,15 @@ async function provisionApplication(
       }
     }
 
-    // 8. Create domain
+    // 8. Create domain (Cloudflare handles TLS, Traefik receives HTTP)
     console.log("   → Creating domain...");
     const port = appSpec.ports?.[0]?.containerPort || 3000;
     await client.createDomain({
       applicationId: app.applicationId,
       host: fullDomain,
       port,
-      https: true,
-      certificateType: "letsencrypt",
+      https: false,
+      certificateType: "none",
     });
     console.log(`   ✓ Domain: https://${fullDomain}`);
 
@@ -271,14 +271,14 @@ async function provisionCompose(
       }
     }
 
-    // 6. Create domain for ingress service
+    // 6. Create domain for ingress service (Cloudflare handles TLS)
     console.log("   → Creating domain...");
     await client.createDomain({
       composeId: compose.composeId,
       host: fullDomain,
       port: composeSpec.ingress.port,
-      https: true,
-      certificateType: "letsencrypt",
+      https: false,
+      certificateType: "none",
       serviceName: composeSpec.ingress.service,
     });
     console.log(`   ✓ Domain: https://${fullDomain} → ${composeSpec.ingress.service}:${composeSpec.ingress.port}`);
