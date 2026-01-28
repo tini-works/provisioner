@@ -34,9 +34,8 @@ jobs:
             echo "added_modified=" >> $GITHUB_OUTPUT
           else
             echo "has_added_modified=true" >> $GITHUB_OUTPUT
-            echo "added_modified<<EOF" >> $GITHUB_OUTPUT
-            echo "$added_modified" | tr '\n' ' ' >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            files_space=$(echo "$added_modified" | tr '\n' ' ' | xargs)
+            echo "added_modified=$files_space" >> $GITHUB_OUTPUT
           fi
 
           # Get deleted files
@@ -48,9 +47,8 @@ jobs:
             echo "deleted=" >> $GITHUB_OUTPUT
           else
             echo "has_deleted=true" >> $GITHUB_OUTPUT
-            echo "deleted<<EOF" >> $GITHUB_OUTPUT
-            echo "$deleted" | tr '\n' ' ' >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            deleted_space=$(echo "$deleted" | tr '\n' ' ' | xargs)
+            echo "deleted=$deleted_space" >> $GITHUB_OUTPUT
           fi
 
           echo "Added/Modified:"
