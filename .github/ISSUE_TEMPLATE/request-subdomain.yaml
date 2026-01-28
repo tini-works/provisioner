@@ -1,0 +1,97 @@
+name: Request New Subdomain
+description: Request a new subdomain on apps.quickable.co
+title: "[Subdomain Request] "
+labels: ["subdomain-request"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Request a Subdomain on apps.quickable.co
+
+        Please fill out this form to request a new subdomain.
+        After approval, you'll submit a PR with your configuration.
+
+  - type: input
+    id: subdomain
+    attributes:
+      label: Requested Subdomain
+      description: "What subdomain do you want? (will become <subdomain>.apps.quickable.co)"
+      placeholder: "my-awesome-app"
+    validations:
+      required: true
+
+  - type: input
+    id: github_username
+    attributes:
+      label: GitHub Username
+      description: "Your GitHub username (will be listed as maintainer)"
+      placeholder: "@username"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Application Description
+      description: "Briefly describe what your application does"
+      placeholder: "A web application that..."
+    validations:
+      required: true
+
+  - type: input
+    id: source_repo
+    attributes:
+      label: Source Repository
+      description: "GitHub repository URL (must be public or access coordinated)"
+      placeholder: "https://github.com/org/repo"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source_type
+    attributes:
+      label: Source Type
+      description: "How is your application packaged?"
+      options:
+        - GitHub Repository with Dockerfile
+        - GitHub Repository with Nixpacks
+        - GitHub Repository (Static Site)
+        - Docker Image
+        - Docker Compose Stack
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Resource Size
+      description: "Choose based on your application's needs"
+      options:
+        - "S - Small (0.5 CPU, 512MB RAM, 1GB storage)"
+        - "M - Medium (1 CPU, 1GB RAM, 5GB storage)"
+        - "L - Large (2 CPU, 2GB RAM, 10GB storage)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_info
+    attributes:
+      label: Additional Information
+      description: "Any other relevant details (special requirements, secrets needed, etc.)"
+      placeholder: "Optional"
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Acknowledgements
+      description: "Please confirm the following"
+      options:
+        - label: My application does not contain malicious code
+          required: true
+        - label: I will follow the security guidelines (no privileged containers, etc.)
+          required: true
+        - label: I understand subdomain allocation is subject to approval
+          required: true
+        - label: I will respond to maintainer requests in a timely manner
+          required: true

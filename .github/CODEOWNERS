@@ -1,0 +1,17 @@
+# Provisioner CODEOWNERS
+#
+# These owners will be requested for review when someone opens a pull request.
+# Learn more: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: all changes require maintainer approval
+*                               @quickable/provisioner-maintainers
+
+# App configurations - require maintainer review
+apps/*/provision.yaml           @quickable/provisioner-maintainers
+
+# Core infrastructure - require admin approval
+.github/                        @quickable/provisioner-admins
+schemas/                        @quickable/provisioner-admins
+scripts/                        @quickable/provisioner-admins
+config/                         @quickable/provisioner-admins
+deploy-action/                  @quickable/provisioner-admins

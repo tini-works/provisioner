@@ -1,0 +1,42 @@
+# T-shirt sizing for resource allocation
+# These limits are enforced at the Dokploy level
+
+sizes:
+  S:
+    description: "Small - ideal for lightweight services, static sites, APIs"
+    cpu:
+      limit: 0.5        # 0.5 vCPU
+      request: 0.25     # Guaranteed 0.25 vCPU
+    memory:
+      limit: 512Mi      # 512 MB max
+      request: 256Mi    # Guaranteed 256 MB
+    storage:
+      limit: 1Gi        # 1 GB persistent storage
+
+  M:
+    description: "Medium - standard applications, small databases"
+    cpu:
+      limit: 1          # 1 vCPU
+      request: 0.5      # Guaranteed 0.5 vCPU
+    memory:
+      limit: 1Gi        # 1 GB max
+      request: 512Mi    # Guaranteed 512 MB
+    storage:
+      limit: 5Gi        # 5 GB persistent storage
+
+  L:
+    description: "Large - resource-intensive apps, larger databases"
+    cpu:
+      limit: 2          # 2 vCPU
+      request: 1        # Guaranteed 1 vCPU
+    memory:
+      limit: 2Gi        # 2 GB max
+      request: 1Gi      # Guaranteed 1 GB
+    storage:
+      limit: 10Gi       # 10 GB persistent storage
+
+# Default size if not specified
+default_size: S
+
+# Limits for compose stacks (applied to entire stack)
+compose_multiplier: 1.5  # Compose stacks get 1.5x the single-app limits

@@ -1,0 +1,60 @@
+# Example: Single Container Application
+# Copy this to apps/<your-subdomain>/provision.yaml
+
+apiVersion: provisioner.quickable.co/v1
+kind: Application
+metadata:
+  # Your subdomain: will become https://example-app.apps.quickable.co
+  name: example-app
+
+  # Brief description (optional)
+  description: "An example application showing basic configuration"
+
+  # Your GitHub username (required for contact/ownership)
+  maintainer: "@your-github-username"
+
+spec:
+  # Source configuration
+  source:
+    type: github
+    github:
+      owner: "your-org"           # GitHub organization or username
+      repo: "your-repo"           # Repository name
+      branch: "main"              # Branch to deploy from
+      path: "/"                   # Directory containing Dockerfile (optional)
+
+  # Build configuration
+  build:
+    type: dockerfile              # dockerfile | nixpacks | static
+    dockerfile: "Dockerfile"      # Path to Dockerfile
+    context: "."                  # Docker build context
+
+  # Resource allocation (S = small, M = medium, L = large)
+  resources:
+    size: S
+
+  # Environment variables
+  env:
+    # Static values
+    NODE_ENV: "production"
+    PUBLIC_URL: "https://example-app.apps.quickable.co"
+
+    # Reference secrets (will be injected at deploy time)
+    # These must exist as GitHub org secrets
+    secretRefs:
+      - name: DATABASE_URL         # Env var name in container
+        secret: MY_APP_DATABASE_URL # GitHub org secret name
+
+  # Ports to expose (first port gets the domain)
+  ports:
+    - containerPort: 3000
+      protocol: tcp
+
+  # Health check (recommended for reliability)
+  healthCheck:
+    path: "/health"               # HTTP endpoint to check
+    port: 3000                    # Port to check
+    intervalSeconds: 30           # Check interval
+
+  # Auto-deploy on source changes (default: true)
+  autoDeploy: true

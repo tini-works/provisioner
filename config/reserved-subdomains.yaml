@@ -1,0 +1,118 @@
+# Reserved subdomains that cannot be claimed by users
+# These are blocked to prevent confusion, security issues, or platform conflicts
+
+reserved:
+  # Core infrastructure
+  - www
+  - api
+  - admin
+  - dashboard
+  - console
+  - portal
+  - status
+
+  # Email services
+  - mail
+  - smtp
+  - imap
+  - pop
+  - mx
+  - postmaster
+  - webmail
+
+  # Authentication
+  - auth
+  - login
+  - oauth
+  - sso
+  - accounts
+  - signin
+  - signup
+  - register
+
+  # Support & docs
+  - docs
+  - help
+  - support
+  - billing
+  - payments
+  - faq
+
+  # Development environments
+  - dev
+  - staging
+  - test
+  - preview
+  - demo
+  - sandbox
+  - beta
+
+  # Static assets
+  - cdn
+  - static
+  - assets
+  - media
+  - images
+  - files
+  - uploads
+
+  # DevOps & infrastructure
+  - git
+  - registry
+  - docker
+  - k8s
+  - kubernetes
+  - ci
+  - cd
+
+  # Monitoring & observability
+  - monitoring
+  - metrics
+  - logs
+  - grafana
+  - prometheus
+  - alertmanager
+  - kibana
+  - elastic
+
+  # Networking
+  - traefik
+  - proxy
+  - lb
+  - ingress
+  - gateway
+  - vpn
+  - tunnel
+
+  # System reserved
+  - internal
+  - private
+  - system
+  - root
+  - localhost
+  - local
+
+  # DNS infrastructure
+  - ns1
+  - ns2
+  - ns3
+  - dns
+  - ntp
+  - ldap
+  - radius
+
+# Patterns that are blocked (prefix matching)
+blocked_prefixes:
+  - admin-
+  - api-
+  - internal-
+  - system-
+
+# Subdomains requiring elevated approval (not auto-approved)
+restricted:
+  - blog
+  - news
+  - community
+  - forum
+  - shop
+  - store

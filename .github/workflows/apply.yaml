@@ -1,0 +1,157 @@
+name: Apply Provision Config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**/provision.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      added_modified: ${{ steps.changes.outputs.added_modified }}
+      deleted: ${{ steps.changes.outputs.deleted }}
+      has_added_modified: ${{ steps.changes.outputs.has_added_modified }}
+      has_deleted: ${{ steps.changes.outputs.has_deleted }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changes
+        id: changes
+        run: |
+          # Get added/modified files
+          added_modified=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD \
+            | grep '^apps/.*/provision\.yaml$' || true)
+
+          if [ -z "$added_modified" ]; then
+            echo "has_added_modified=false" >> $GITHUB_OUTPUT
+            echo "added_modified=" >> $GITHUB_OUTPUT
+          else
+            echo "has_added_modified=true" >> $GITHUB_OUTPUT
+            echo "added_modified<<EOF" >> $GITHUB_OUTPUT
+            echo "$added_modified" | tr '\n' ' ' >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+          # Get deleted files
+          deleted=$(git diff --name-only --diff-filter=D HEAD~1 HEAD \
+            | grep '^apps/.*/provision\.yaml$' || true)
+
+          if [ -z "$deleted" ]; then
+            echo "has_deleted=false" >> $GITHUB_OUTPUT
+            echo "deleted=" >> $GITHUB_OUTPUT
+          else
+            echo "has_deleted=true" >> $GITHUB_OUTPUT
+            echo "deleted<<EOF" >> $GITHUB_OUTPUT
+            echo "$deleted" | tr '\n' ' ' >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Added/Modified:"
+          echo "$added_modified"
+          echo ""
+          echo "Deleted:"
+          echo "$deleted"
+
+  provision:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_added_modified == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Provision to Dokploy
+        id: provision
+        run: |
+          echo "Provisioning: ${{ needs.detect-changes.outputs.added_modified }}"
+          bun run scripts/apply.ts ${{ needs.detect-changes.outputs.added_modified }}
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          # Pass org secrets that apps can reference
+          # Add more SECRET_* vars as needed
+          SECRET_SHARED_DATABASE_URL: ${{ secrets.SHARED_DATABASE_URL }}
+
+      - name: Write audit log
+        if: always()
+        run: |
+          echo "$(date -Iseconds) | ${{ github.actor }} | provision | ${{ job.status }} | ${{ needs.detect-changes.outputs.added_modified }}" >> audit.log
+          cat audit.log
+
+  deprovision:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_deleted == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Cleanup deleted apps
+        run: |
+          for file in ${{ needs.detect-changes.outputs.deleted }}; do
+            echo "Processing deleted file: $file"
+
+            # Extract previous content from git history
+            subdomain=$(dirname "$file" | xargs basename)
+            mkdir -p /tmp/deleted
+
+            # Get the content from before deletion
+            git show HEAD~1:"$file" > /tmp/deleted/${subdomain}.yaml || true
+
+            # Run cleanup
+            if [ -f /tmp/deleted/${subdomain}.yaml ]; then
+              bun run scripts/cleanup.ts /tmp/deleted/${subdomain}.yaml
+            else
+              echo "Warning: Could not extract previous content for $file"
+            fi
+          done
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+
+      - name: Write audit log
+        if: always()
+        run: |
+          echo "$(date -Iseconds) | ${{ github.actor }} | deprovision | ${{ job.status }} | ${{ needs.detect-changes.outputs.deleted }}" >> audit.log
+
+  summary:
+    needs: [detect-changes, provision, deprovision]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## Provisioner Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.detect-changes.outputs.has_added_modified }}" == "true" ]; then
+            echo "### Provisioned" >> $GITHUB_STEP_SUMMARY
+            echo "Status: ${{ needs.provision.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "Files: ${{ needs.detect-changes.outputs.added_modified }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.detect-changes.outputs.has_deleted }}" == "true" ]; then
+            echo "### Deprovisioned" >> $GITHUB_STEP_SUMMARY
+            echo "Status: ${{ needs.deprovision.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "Files: ${{ needs.detect-changes.outputs.deleted }}" >> $GITHUB_STEP_SUMMARY
+          fi

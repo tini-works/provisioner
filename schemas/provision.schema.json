@@ -1,0 +1,331 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://provisioner.quickable.co/schemas/v1/provision.json",
+  "title": "Provision Configuration",
+  "description": "Configuration for deploying apps to apps.quickable.co",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "provisioner.quickable.co/v1",
+      "description": "API version for schema compatibility"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["Application", "ComposeStack"],
+      "description": "Type of deployment"
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "spec": {
+      "oneOf": [
+        {
+          "if": { "properties": { "kind": { "const": "Application" } } },
+          "then": { "$ref": "#/$defs/applicationSpec" }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "ComposeStack" } } },
+          "then": { "$ref": "#/$defs/composeSpec" }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "kind": { "const": "Application" } }
+      },
+      "then": {
+        "properties": {
+          "spec": { "$ref": "#/$defs/applicationSpec" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "kind": { "const": "ComposeStack" } }
+      },
+      "then": {
+        "properties": {
+          "spec": { "$ref": "#/$defs/composeSpec" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "required": ["name", "maintainer"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$",
+          "description": "Subdomain name (DNS-safe, 3-63 chars, lowercase alphanumeric and hyphens)"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Brief description of the application"
+        },
+        "maintainer": {
+          "type": "string",
+          "pattern": "^@[a-zA-Z0-9][a-zA-Z0-9-]*$",
+          "description": "GitHub username of maintainer (e.g., @username)"
+        }
+      }
+    },
+    "githubSource": {
+      "type": "object",
+      "required": ["owner", "repo", "branch"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "GitHub organization or username"
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repository name"
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Branch to track for auto-deploy"
+        },
+        "path": {
+          "type": "string",
+          "default": "/",
+          "description": "Subdirectory containing Dockerfile"
+        },
+        "composePath": {
+          "type": "string",
+          "description": "Path to docker-compose file (for ComposeStack)"
+        }
+      }
+    },
+    "dockerSource": {
+      "type": "object",
+      "required": ["image", "tag"],
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Docker image reference (e.g., ghcr.io/user/app)"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Image tag to track for auto-deploy"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["github", "docker"],
+          "description": "Source type"
+        },
+        "github": {
+          "$ref": "#/$defs/githubSource"
+        },
+        "docker": {
+          "$ref": "#/$defs/dockerSource"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "github" } }
+          },
+          "then": {
+            "required": ["github"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "docker" } }
+          },
+          "then": {
+            "required": ["docker"]
+          }
+        }
+      ]
+    },
+    "build": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["dockerfile", "nixpacks", "static"],
+          "description": "Build method"
+        },
+        "dockerfile": {
+          "type": "string",
+          "default": "Dockerfile",
+          "description": "Path to Dockerfile"
+        },
+        "context": {
+          "type": "string",
+          "default": ".",
+          "description": "Docker build context"
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Build arguments"
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "required": ["size"],
+      "additionalProperties": false,
+      "properties": {
+        "size": {
+          "type": "string",
+          "enum": ["S", "M", "L"],
+          "description": "T-shirt size for resource allocation"
+        }
+      }
+    },
+    "secretRef": {
+      "type": "object",
+      "required": ["name", "secret"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Environment variable name in container"
+        },
+        "secret": {
+          "type": "string",
+          "description": "GitHub org secret name to reference"
+        }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "secretRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/secretRef" },
+          "description": "References to GitHub org secrets"
+        }
+      },
+      "patternProperties": {
+        "^[A-Z][A-Z0-9_]*$": {
+          "type": "string",
+          "description": "Environment variable value"
+        }
+      }
+    },
+    "port": {
+      "type": "object",
+      "required": ["containerPort"],
+      "additionalProperties": false,
+      "properties": {
+        "containerPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Container port to expose"
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["tcp", "udp"],
+          "default": "tcp"
+        }
+      }
+    },
+    "healthCheck": {
+      "type": "object",
+      "required": ["path", "port"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "HTTP path for health check"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "intervalSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 30
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "required": ["service", "port"],
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "type": "string",
+          "description": "Compose service name for public domain"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "applicationSpec": {
+      "type": "object",
+      "required": ["source", "resources"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "$ref": "#/$defs/source" },
+        "build": { "$ref": "#/$defs/build" },
+        "resources": { "$ref": "#/$defs/resources" },
+        "env": { "$ref": "#/$defs/env" },
+        "ports": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/port" },
+          "minItems": 1
+        },
+        "healthCheck": { "$ref": "#/$defs/healthCheck" },
+        "autoDeploy": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable auto-deploy on source changes"
+        }
+      }
+    },
+    "composeSpec": {
+      "type": "object",
+      "required": ["source", "resources", "ingress"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "$ref": "#/$defs/source" },
+        "resources": { "$ref": "#/$defs/resources" },
+        "env": { "$ref": "#/$defs/env" },
+        "ingress": { "$ref": "#/$defs/ingress" },
+        "autoDeploy": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable auto-deploy on source changes"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,157 @@
+name: Validate Provision Config
+
+on:
+  pull_request:
+    paths:
+      - "apps/**/provision.yaml"
+      - "schemas/**"
+      - "config/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed_files: ${{ steps.changes.outputs.files }}
+      has_changes: ${{ steps.changes.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed provision files
+        id: changes
+        run: |
+          # Get list of changed provision.yaml files
+          files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} \
+            | grep '^apps/.*/provision\.yaml$' || true)
+
+          if [ -z "$files" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "files=" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            # Convert to space-separated for passing to script
+            echo "files<<EOF" >> $GITHUB_OUTPUT
+            echo "$files" | tr '\n' ' ' >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Changed files:"
+          echo "$files"
+
+  validate:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Validate provision files
+        id: validate
+        run: |
+          echo "Validating: ${{ needs.detect-changes.outputs.changed_files }}"
+          bun run scripts/validate.ts ${{ needs.detect-changes.outputs.changed_files }}
+        env:
+          VALIDATE_SOURCES: "true"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment validation result (success)
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = `${{ needs.detect-changes.outputs.changed_files }}`.trim().split(' ');
+            const fileList = files.map(f => `- \`${f}\``).join('\n');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ✅ Provision Validation Passed
+
+            **Validated files:**
+            ${fileList}
+
+            All checks passed. Ready for maintainer review!
+
+            ---
+            *After merge, the app will be deployed to \`*.apps.quickable.co\`*`
+            });
+
+      - name: Comment validation result (failure)
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ❌ Provision Validation Failed
+
+            Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+            Common issues:
+            - Invalid YAML syntax
+            - Schema validation errors
+            - Reserved subdomain name
+            - Dangerous container options (privileged, host networking, etc.)`
+            });
+
+  check-reserved:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for reserved subdomains
+        run: |
+          # Extract subdomain names from changed file paths
+          for file in ${{ needs.detect-changes.outputs.changed_files }}; do
+            # Extract directory name (subdomain)
+            subdomain=$(dirname "$file" | xargs basename)
+
+            # Load reserved list
+            reserved=$(grep -E "^\s*-\s+" config/reserved-subdomains.yaml | sed 's/.*- //' | tr '\n' '|' | sed 's/|$//')
+
+            if echo "$subdomain" | grep -qE "^($reserved)$"; then
+              echo "❌ ERROR: '$subdomain' is a reserved subdomain"
+              exit 1
+            fi
+
+            # Check blocked prefixes
+            if echo "$subdomain" | grep -qE "^(admin-|api-|internal-|system-|test-|dev-)"; then
+              echo "❌ ERROR: '$subdomain' matches a blocked prefix pattern"
+              exit 1
+            fi
+
+            echo "✓ Subdomain '$subdomain' is allowed"
+          done
+
+  summary:
+    needs: [validate, check-reserved]
+    if: always() && needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.validate.result }}" != "success" ]; then
+            echo "Validation failed"
+            exit 1
+          fi
+          if [ "${{ needs.check-reserved.result }}" != "success" ]; then
+            echo "Reserved subdomain check failed"
+            exit 1
+          fi
+          echo "All checks passed!"

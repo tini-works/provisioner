@@ -1,0 +1,114 @@
+name: "Deploy to apps.quickable.co"
+description: "Trigger redeployment of your app on apps.quickable.co"
+author: "Quickable"
+
+branding:
+  icon: "upload-cloud"
+  color: "blue"
+
+inputs:
+  application-id:
+    description: "Dokploy Application ID (for single container apps)"
+    required: false
+  compose-id:
+    description: "Dokploy Compose ID (for compose stacks)"
+    required: false
+  api-token:
+    description: "Dokploy API token (deploy-only scope)"
+    required: true
+  api-url:
+    description: "Dokploy API URL"
+    required: false
+    default: "https://dokploy.quickable.co"
+  title:
+    description: "Deployment title/description"
+    required: false
+    default: ""
+
+outputs:
+  deployment-status:
+    description: "Status of the deployment (success/failure)"
+    value: ${{ steps.deploy.outputs.status }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.application-id }}" ] && [ -z "${{ inputs.compose-id }}" ]; then
+          echo "❌ Error: Either application-id or compose-id must be provided"
+          exit 1
+        fi
+
+        if [ -n "${{ inputs.application-id }}" ] && [ -n "${{ inputs.compose-id }}" ]; then
+          echo "❌ Error: Provide either application-id or compose-id, not both"
+          exit 1
+        fi
+
+    - name: Trigger deployment
+      id: deploy
+      shell: bash
+      run: |
+        API_URL="${{ inputs.api-url }}"
+        API_TOKEN="${{ inputs.api-token }}"
+        TITLE="${{ inputs.title }}"
+
+        # Default title if not provided
+        if [ -z "$TITLE" ]; then
+          TITLE="Deploy from ${{ github.repository }}@${{ github.sha }}"
+        fi
+
+        # Determine endpoint and ID
+        if [ -n "${{ inputs.application-id }}" ]; then
+          ENDPOINT="/api/application.redeploy"
+          BODY="{\"applicationId\": \"${{ inputs.application-id }}\", \"title\": \"$TITLE\"}"
+          echo "🚀 Redeploying application: ${{ inputs.application-id }}"
+        else
+          ENDPOINT="/api/compose.redeploy"
+          BODY="{\"composeId\": \"${{ inputs.compose-id }}\", \"title\": \"$TITLE\"}"
+          echo "🚀 Redeploying compose stack: ${{ inputs.compose-id }}"
+        fi
+
+        # Make API request
+        HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+          -X POST "${API_URL}${ENDPOINT}" \
+          -H "Content-Type: application/json" \
+          -H "Accept: application/json" \
+          -H "x-api-key: ${API_TOKEN}" \
+          -d "${BODY}")
+
+        # Check response
+        if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+          echo "✅ Deployment triggered successfully"
+          echo "status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Deployment failed with status: $HTTP_STATUS"
+          echo "Response:"
+          cat /tmp/response.json
+          echo "status=failure" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Summary
+      shell: bash
+      if: always()
+      run: |
+        echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [ "${{ steps.deploy.outputs.status }}" == "success" ]; then
+          echo "✅ **Status:** Success" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Status:** Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Actor:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+
+        if [ -n "${{ inputs.application-id }}" ]; then
+          echo "**Application ID:** ${{ inputs.application-id }}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "**Compose ID:** ${{ inputs.compose-id }}" >> $GITHUB_STEP_SUMMARY
+        fi

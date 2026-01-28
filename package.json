@@ -1,0 +1,22 @@
+{
+  "name": "provisioner",
+  "version": "1.0.0",
+  "description": "Secure bridge for hosting apps on apps.quickable.co",
+  "type": "module",
+  "scripts": {
+    "validate": "bun run scripts/validate.ts",
+    "apply": "bun run scripts/apply.ts",
+    "cleanup": "bun run scripts/cleanup.ts",
+    "typecheck": "bunx @anthropic-ai/typescript-native-preview",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}
