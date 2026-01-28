@@ -20,3 +20,4 @@ spec:
   healthCheck:
     path: "/health"
     port: 3000
+    intervalSeconds: 30
