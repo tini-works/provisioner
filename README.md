@@ -2,24 +2,24 @@
 
 Deploy your app to `*.apps.quickable.co` by opening a PR.
 
-## How to Deploy
+## Steps
 
 1. Create `apps/<your-subdomain>/provision.yaml`
 2. Open a PR
-3. Wait for validation to pass
-4. Get maintainer approval
-5. Merge → your app is live at `<your-subdomain>.apps.quickable.co`
+3. Merge after approval
+4. Your app is live at `https://<your-subdomain>.apps.quickable.co`
 
-## Example
+---
+
+## Docker App
 
 ```yaml
-# apps/my-app/provision.yaml
+# apps/hello-world/provision.yaml
 apiVersion: provisioner.quickable.co/v1
 kind: Application
 metadata:
-  name: my-app
-  description: "My awesome app"
-  maintainer: "@your-github-username"
+  name: hello-world
+  maintainer: "@your-github"
 spec:
   source:
     type: github
@@ -33,47 +33,21 @@ spec:
     size: S
   ports:
     - containerPort: 3000
-  healthCheck:
-    path: "/health"
-    port: 3000
 ```
 
-## Configuration
+→ Deploys to `https://hello-world.apps.quickable.co`
 
-| Field | Description |
-|-------|-------------|
-| `metadata.name` | App name (for display) |
-| `metadata.maintainer` | Your GitHub handle |
-| `spec.source.github.owner` | Repo owner |
-| `spec.source.github.repo` | Repo name |
-| `spec.source.github.branch` | Branch to deploy |
-| `spec.build.type` | `dockerfile`, `nixpacks`, or `static` |
-| `spec.resources.size` | `S` (512MB), `M` (1GB), or `L` (2GB) |
-| `spec.ports[].containerPort` | Port your app listens on |
-| `spec.healthCheck.path` | Health check endpoint |
+---
 
-## Environment Variables
+## Docker Compose App
 
 ```yaml
-spec:
-  env:
-    NODE_ENV: "production"
-    # Reference org secrets:
-    secretRefs:
-      - name: DATABASE_URL          # Env var in your app
-        secret: SHARED_DATABASE_URL # Org secret name
-```
-
-## Docker Compose Apps
-
-For multi-container apps:
-
-```yaml
+# apps/my-stack/provision.yaml
 apiVersion: provisioner.quickable.co/v1
 kind: ComposeStack
 metadata:
   name: my-stack
-  maintainer: "@your-github-username"
+  maintainer: "@your-github"
 spec:
   source:
     type: github
@@ -85,10 +59,22 @@ spec:
   resources:
     size: M
   ingress:
-    service: web    # Service that gets the public domain
+    service: web
     port: 80
 ```
 
-## Removing Your App
+→ Deploys to `https://my-stack.apps.quickable.co`
 
-Delete your `apps/<subdomain>/provision.yaml` file and merge the PR.
+---
+
+## Sizes
+
+| Size | Memory |
+|------|--------|
+| S | 512MB |
+| M | 1GB |
+| L | 2GB |
+
+## Remove
+
+Delete your `provision.yaml` and merge.
