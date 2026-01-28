@@ -81,6 +81,11 @@ async function provisionApplication(
 
     if (source.type === "github" && source.github) {
       console.log("   → Configuring Git source...");
+      // First, set sourceType to "git" so Dokploy knows to clone
+      await client.updateApplication({
+        applicationId: app.applicationId,
+        sourceType: "git",
+      });
       // Use custom git provider for public repos (no GitHub integration required)
       const gitUrl = `https://github.com/${source.github.owner}/${source.github.repo}.git`;
       await client.configureCustomGitProvider({
