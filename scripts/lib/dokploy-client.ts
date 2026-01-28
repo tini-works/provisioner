@@ -102,6 +102,12 @@ export interface CustomGitProviderRequest {
   customGitSSHKeyId?: string;
 }
 
+export interface UpdateApplicationRequest {
+  applicationId: string;
+  sourceType?: "git" | "github" | "docker" | "drop";
+  [key: string]: unknown;
+}
+
 export interface BuildTypeRequest {
   applicationId: string;
   buildType: "dockerfile" | "heroku_buildpacks" | "paketo_buildpacks" | "nixpacks" | "static";
@@ -247,6 +253,13 @@ export class DokployClient {
 
   async configureDockerProvider(params: DockerProviderRequest): Promise<void> {
     await this.request("/application.saveDockerProvider", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
+  }
+
+  async updateApplication(params: UpdateApplicationRequest): Promise<void> {
+    await this.request("/application.update", {
       method: "POST",
       body: JSON.stringify(params),
     });
