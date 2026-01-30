@@ -94,7 +94,6 @@ export interface DockerProviderRequest {
   dockerImage: string;
   username?: string;
   password?: string;
-  registryId?: string;
 }
 
 export interface CustomGitProviderRequest {

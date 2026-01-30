@@ -99,8 +99,14 @@ async function provisionApplication(
       await client.configureDockerProvider({
         applicationId: app.applicationId,
         dockerImage: prebuiltImage,
-        registryId: ghcrRegistryId,
       });
+      // Set registryId separately via application.update (saveDockerProvider doesn't accept it)
+      if (ghcrRegistryId) {
+        await client.updateApplication({
+          applicationId: app.applicationId,
+          registryId: ghcrRegistryId,
+        });
+      }
       console.log(`   ✓ Docker image: ${prebuiltImage}${ghcrRegistryId ? " (with GHCR registry)" : ""}`);
     } else if (source.type === "github" && source.github) {
       console.log("   → Configuring Git source...");
