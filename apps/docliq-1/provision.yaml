@@ -5,10 +5,13 @@ metadata:
   maintainer: "@lia-dsgnr"
 spec:
   source:
-    type: docker
-    docker:
-      image: "ghcr.io/tini-works/proto-medalpha"
-      tag: "latest"
+    type: github
+    github:
+      owner: tini-works
+      repo: proto-medalpha
+      branch: main
+  build:
+    type: dockerfile
   resources:
     size: M
   ports:
