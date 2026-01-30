@@ -4,7 +4,14 @@ on:
   push:
     branches: [main]
     paths:
+      - "apps/*.yaml"
       - "apps/**/provision.yaml"
+  workflow_dispatch:
+    inputs:
+      files:
+        description: "Space-separated list of provision files to apply (e.g., apps/my-app/provision.yaml)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -25,9 +32,19 @@ jobs:
       - name: Detect changes
         id: changes
         run: |
-          # Get added/modified files
+          # If manual trigger with files input, use that
+          if [ -n "${{ inputs.files }}" ]; then
+            echo "Manual trigger with files: ${{ inputs.files }}"
+            echo "has_added_modified=true" >> $GITHUB_OUTPUT
+            echo "added_modified=${{ inputs.files }}" >> $GITHUB_OUTPUT
+            echo "has_deleted=false" >> $GITHUB_OUTPUT
+            echo "deleted=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Get added/modified files (both formats: apps/x.yaml and apps/x/provision.yaml)
           added_modified=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD \
-            | grep '^apps/.*/provision\.yaml$' || true)
+            | grep -E '^apps/[^/]+\.yaml$|^apps/.*/provision\.yaml$' || true)
 
           if [ -z "$added_modified" ]; then
             echo "has_added_modified=false" >> $GITHUB_OUTPUT
@@ -40,7 +57,7 @@ jobs:
 
           # Get deleted files
           deleted=$(git diff --name-only --diff-filter=D HEAD~1 HEAD \
-            | grep '^apps/.*/provision\.yaml$' || true)
+            | grep -E '^apps/[^/]+\.yaml$|^apps/.*/provision\.yaml$' || true)
 
           if [ -z "$deleted" ]; then
             echo "has_deleted=false" >> $GITHUB_OUTPUT
@@ -108,8 +125,13 @@ jobs:
           for file in ${{ needs.detect-changes.outputs.deleted }}; do
             echo "Processing deleted file: $file"
 
-            # Extract previous content from git history
-            subdomain=$(dirname "$file" | xargs basename)
+            # Extract subdomain from path (handles both apps/x.yaml and apps/x/provision.yaml)
+            filename=$(basename "$file")
+            if [ "$filename" = "provision.yaml" ]; then
+              subdomain=$(dirname "$file" | xargs basename)
+            else
+              subdomain="${filename%.yaml}"
+            fi
             mkdir -p /tmp/deleted
 
             # Get the content from before deletion
