@@ -17,6 +17,130 @@ import type {
 } from "./lib/types";
 import { isPrivateOrg } from "./lib/github-orgs";
 
+/**
+ * Validate Docker image exists in registry
+ */
+async function validateDockerImage(
+  image: string,
+  tag: string
+): Promise<{ exists: boolean; error?: string }> {
+  try {
+    // Parse image reference
+    // Examples:
+    // - ghcr.io/owner/image -> GHCR
+    // - docker.io/library/nginx or nginx -> Docker Hub
+    // - gcr.io/project/image -> GCR
+
+    if (image.startsWith("ghcr.io/")) {
+      // GitHub Container Registry - use GitHub API
+      const parts = image.replace("ghcr.io/", "").split("/");
+      if (parts.length < 2) {
+        return { exists: false, error: "Invalid GHCR image format" };
+      }
+
+      const owner = parts[0];
+      const packageName = parts.slice(1).join("/");
+
+      // Check if it's an org or user package
+      const orgResponse = await fetch(
+        `https://api.github.com/orgs/${owner}/packages/container/${encodeURIComponent(packageName)}`,
+        {
+          headers: Bun.env.GITHUB_TOKEN
+            ? { Authorization: `token ${Bun.env.GITHUB_TOKEN}` }
+            : {},
+        }
+      );
+
+      if (orgResponse.ok) {
+        return { exists: true };
+      }
+
+      // Try user endpoint
+      const userResponse = await fetch(
+        `https://api.github.com/users/${owner}/packages/container/${encodeURIComponent(packageName)}`,
+        {
+          headers: Bun.env.GITHUB_TOKEN
+            ? { Authorization: `token ${Bun.env.GITHUB_TOKEN}` }
+            : {},
+        }
+      );
+
+      if (userResponse.ok) {
+        return { exists: true };
+      }
+
+      return {
+        exists: false,
+        error: `Package not found in ghcr.io/${owner}/${packageName}`,
+      };
+    }
+
+    // Docker Hub - use registry API
+    let registryImage = image;
+    let registry = "registry-1.docker.io";
+
+    if (!image.includes("/")) {
+      // Official image like "nginx"
+      registryImage = `library/${image}`;
+    } else if (!image.includes(".")) {
+      // User image like "user/image"
+      registryImage = image;
+    } else {
+      // Other registries - try to fetch manifest
+      const parts = image.split("/");
+      registry = parts[0];
+      registryImage = parts.slice(1).join("/");
+    }
+
+    // For Docker Hub, check via API
+    if (registry === "registry-1.docker.io" || registry === "docker.io") {
+      const response = await fetch(
+        `https://hub.docker.com/v2/repositories/${registryImage}/tags/${tag}`,
+        { method: "HEAD" }
+      );
+
+      if (response.ok) {
+        return { exists: true };
+      }
+
+      // Try without tag check
+      const repoResponse = await fetch(
+        `https://hub.docker.com/v2/repositories/${registryImage}`,
+        { method: "HEAD" }
+      );
+
+      if (!repoResponse.ok) {
+        return { exists: false, error: "Repository not found on Docker Hub" };
+      }
+
+      return { exists: false, error: `Tag '${tag}' not found` };
+    }
+
+    // For other registries, try anonymous manifest fetch
+    const manifestUrl = `https://${registry}/v2/${registryImage}/manifests/${tag}`;
+    const manifestResponse = await fetch(manifestUrl, {
+      method: "HEAD",
+      headers: {
+        Accept: "application/vnd.docker.distribution.manifest.v2+json",
+      },
+    });
+
+    if (manifestResponse.ok) {
+      return { exists: true };
+    }
+
+    if (manifestResponse.status === 401) {
+      // Registry requires auth - can't validate, assume exists
+      return { exists: true };
+    }
+
+    return { exists: false, error: `Image not found in ${registry}` };
+  } catch (e) {
+    // Network error or other issue - warn but don't fail
+    return { exists: true }; // Assume exists on error
+  }
+}
+
 // Load JSON Schema
 const schemaPath = new URL("../schemas/provision.schema.json", import.meta.url);
 const schema = JSON.parse(readFileSync(schemaPath, "utf-8"));
@@ -203,13 +327,27 @@ async function validateFile(filePath: string): Promise<ValidationResult> {
     }
 
     if (source.type === "docker" && source.docker) {
-      if (source.docker.tag === "latest") {
+      const { image, tag } = source.docker;
+
+      if (tag === "latest") {
         warnings.push({
           type: "warning",
           message:
             "Using 'latest' tag may cause unexpected updates - consider using a specific version",
           path: "/spec/source/docker/tag",
         });
+      }
+
+      // Validate Docker image exists
+      if (Bun.env.VALIDATE_SOURCES === "true") {
+        const imageExists = await validateDockerImage(image, tag);
+        if (!imageExists.exists) {
+          errors.push({
+            type: "error",
+            message: `Docker image ${image}:${tag} not found: ${imageExists.error}`,
+            path: "/spec/source/docker",
+          });
+        }
       }
     }
   }
