@@ -1,0 +1,18 @@
+apiVersion: provisioner.quickable.co/v1
+kind: Application
+metadata:
+  name: docliq-2
+  maintainer: "@garyctc"
+spec:
+  source:
+    type: github
+    github:
+      owner: "garyctc"
+      repo: "MedAlpha-Flow"
+      branch: "main"
+  build:
+    type: dockerfile
+  resources:
+    size: M
+  ports:
+    - containerPort: 5000
