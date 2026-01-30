@@ -25,6 +25,8 @@ export interface Project {
   projectId: string;
   name: string;
   description?: string;
+  applications?: Application[];
+  compose?: Compose[];
 }
 
 export interface Application {
@@ -198,6 +200,11 @@ export class DokployClient {
 
   async listProjects(): Promise<Project[]> {
     return this.request<Project[]>("/project.all");
+  }
+
+  async findProjectByName(name: string): Promise<Project | null> {
+    const projects = await this.listProjects();
+    return projects.find((p) => p.name === name) || null;
   }
 
   async deleteProject(projectId: string): Promise<void> {

@@ -50,22 +50,56 @@ async function provisionApplication(
     console.log(`\n📦 Provisioning Application: ${appName}`);
     console.log(`   Subdomain: ${fullDomain}`);
 
-    // 1. Create project for isolation (returns project + default environment)
-    console.log("   → Creating project...");
-    const { project, environment } = await client.createProject({
-      name: `provisioner-${subdomain}`,
-      description: config.metadata.description || `Provisioned app: ${appName}`,
-    });
-    console.log(`   ✓ Project created: ${project.projectId}`);
+    const projectName = `provisioner-${subdomain}`;
+    let project: { projectId: string };
+    let app: { applicationId: string };
+    let isUpdate = false;
 
-    // 3. Create application
-    console.log("   → Creating application...");
-    const app = await client.createApplication({
-      name: appName,
-      environmentId: environment.environmentId,
-      description: config.metadata.description,
-    });
-    console.log(`   ✓ Application created: ${app.applicationId}`);
+    // 1. Check if project already exists (idempotent)
+    const existingProject = await client.findProjectByName(projectName);
+
+    if (existingProject) {
+      // Project exists - find existing app and update
+      console.log(`   → Found existing project: ${existingProject.projectId}`);
+      project = existingProject;
+      isUpdate = true;
+
+      // Get project details to find the application
+      const projectDetails = await client.getProject(existingProject.projectId);
+      const existingApp = projectDetails.applications?.[0];
+
+      if (existingApp) {
+        app = existingApp;
+        console.log(`   → Found existing application: ${app.applicationId}`);
+      } else {
+        // Project exists but no app - create one
+        const environment = await client.getDefaultEnvironment(existingProject.projectId);
+        console.log("   → Creating application in existing project...");
+        app = await client.createApplication({
+          name: appName,
+          environmentId: environment.environmentId,
+          description: config.metadata.description,
+        });
+        console.log(`   ✓ Application created: ${app.applicationId}`);
+      }
+    } else {
+      // Create new project and application
+      console.log("   → Creating project...");
+      const result = await client.createProject({
+        name: projectName,
+        description: config.metadata.description || `Provisioned app: ${appName}`,
+      });
+      project = result.project;
+      console.log(`   ✓ Project created: ${project.projectId}`);
+
+      console.log("   → Creating application...");
+      app = await client.createApplication({
+        name: appName,
+        environmentId: result.environment.environmentId,
+        description: config.metadata.description,
+      });
+      console.log(`   ✓ Application created: ${app.applicationId}`);
+    }
 
     // 4. Configure source
     const appSpec = config.spec as ApplicationConfig["spec"];
@@ -188,24 +222,32 @@ async function provisionApplication(
       }
     }
 
-    // 8. Create domain (Cloudflare handles TLS, Traefik receives HTTP)
-    console.log("   → Creating domain...");
-    const port = appSpec.ports?.[0]?.containerPort || 3000;
-    await client.createDomain({
-      applicationId: app.applicationId,
-      host: fullDomain,
-      port,
-      https: false,
-      certificateType: "none",
-    });
-    console.log(`   ✓ Domain: https://${fullDomain}`);
+    // 8. Create domain (skip if updating - domain already exists)
+    if (!isUpdate) {
+      console.log("   → Creating domain...");
+      const port = appSpec.ports?.[0]?.containerPort || 3000;
+      await client.createDomain({
+        applicationId: app.applicationId,
+        host: fullDomain,
+        port,
+        https: false,
+        certificateType: "none",
+      });
+      console.log(`   ✓ Domain: https://${fullDomain}`);
+    } else {
+      console.log(`   ✓ Domain exists: https://${fullDomain}`);
+    }
 
-    // 9. Trigger initial deployment
-    console.log("   → Triggering deployment...");
-    await client.deployApplication({
-      applicationId: app.applicationId,
-      title: "Initial deployment via provisioner",
-    });
+    // 9. Trigger deployment (redeploy for updates)
+    console.log(isUpdate ? "   → Triggering redeploy..." : "   → Triggering deployment...");
+    if (isUpdate) {
+      await client.redeployApplication(app.applicationId);
+    } else {
+      await client.deployApplication({
+        applicationId: app.applicationId,
+        title: "Initial deployment via provisioner",
+      });
+    }
     console.log("   ✓ Deployment triggered");
 
     // 10. Setup auto-deploy for tini-works repos
@@ -261,23 +303,58 @@ async function provisionCompose(
     console.log(`\n📦 Provisioning ComposeStack: ${appName}`);
     console.log(`   Subdomain: ${fullDomain}`);
 
-    // 1. Create project (returns project + default environment)
-    console.log("   → Creating project...");
-    const { project, environment } = await client.createProject({
-      name: `provisioner-${subdomain}`,
-      description: config.metadata.description || `Provisioned compose: ${appName}`,
-    });
-    console.log(`   ✓ Project created: ${project.projectId}`);
+    const projectName = `provisioner-${subdomain}`;
+    let project: { projectId: string };
+    let compose: { composeId: string };
+    let isUpdate = false;
 
-    // 3. Create compose stack
-    console.log("   → Creating compose stack...");
-    const compose = await client.createCompose({
-      name: appName,
-      environmentId: environment.environmentId,
-      description: config.metadata.description,
-      composeType: "docker-compose",
-    });
-    console.log(`   ✓ Compose created: ${compose.composeId}`);
+    // 1. Check if project already exists (idempotent)
+    const existingProject = await client.findProjectByName(projectName);
+
+    if (existingProject) {
+      // Project exists - find existing compose and update
+      console.log(`   → Found existing project: ${existingProject.projectId}`);
+      project = existingProject;
+      isUpdate = true;
+
+      // Get project details to find the compose
+      const projectDetails = await client.getProject(existingProject.projectId);
+      const existingCompose = projectDetails.compose?.[0];
+
+      if (existingCompose) {
+        compose = existingCompose;
+        console.log(`   → Found existing compose: ${compose.composeId}`);
+      } else {
+        // Project exists but no compose - create one
+        const environment = await client.getDefaultEnvironment(existingProject.projectId);
+        console.log("   → Creating compose in existing project...");
+        compose = await client.createCompose({
+          name: appName,
+          environmentId: environment.environmentId,
+          description: config.metadata.description,
+          composeType: "docker-compose",
+        });
+        console.log(`   ✓ Compose created: ${compose.composeId}`);
+      }
+    } else {
+      // Create new project and compose
+      console.log("   → Creating project...");
+      const result = await client.createProject({
+        name: projectName,
+        description: config.metadata.description || `Provisioned compose: ${appName}`,
+      });
+      project = result.project;
+      console.log(`   ✓ Project created: ${project.projectId}`);
+
+      console.log("   → Creating compose stack...");
+      compose = await client.createCompose({
+        name: appName,
+        environmentId: result.environment.environmentId,
+        description: config.metadata.description,
+        composeType: "docker-compose",
+      });
+      console.log(`   ✓ Compose created: ${compose.composeId}`);
+    }
 
     // 4. Configure source
     const composeSpec = config.spec as ComposeConfig["spec"];
@@ -344,24 +421,32 @@ async function provisionCompose(
       }
     }
 
-    // 6. Create domain for ingress service (Cloudflare handles TLS)
-    console.log("   → Creating domain...");
-    await client.createDomain({
-      composeId: compose.composeId,
-      host: fullDomain,
-      port: composeSpec.ingress.port,
-      https: false,
-      certificateType: "none",
-      serviceName: composeSpec.ingress.service,
-    });
-    console.log(`   ✓ Domain: https://${fullDomain} → ${composeSpec.ingress.service}:${composeSpec.ingress.port}`);
+    // 6. Create domain for ingress service (skip if updating)
+    if (!isUpdate) {
+      console.log("   → Creating domain...");
+      await client.createDomain({
+        composeId: compose.composeId,
+        host: fullDomain,
+        port: composeSpec.ingress.port,
+        https: false,
+        certificateType: "none",
+        serviceName: composeSpec.ingress.service,
+      });
+      console.log(`   ✓ Domain: https://${fullDomain} → ${composeSpec.ingress.service}:${composeSpec.ingress.port}`);
+    } else {
+      console.log(`   ✓ Domain exists: https://${fullDomain}`);
+    }
 
-    // 7. Trigger deployment
-    console.log("   → Triggering deployment...");
-    await client.deployCompose({
-      composeId: compose.composeId,
-      title: "Initial deployment via provisioner",
-    });
+    // 7. Trigger deployment (redeploy for updates)
+    console.log(isUpdate ? "   → Triggering redeploy..." : "   → Triggering deployment...");
+    if (isUpdate) {
+      await client.redeployCompose(compose.composeId);
+    } else {
+      await client.deployCompose({
+        composeId: compose.composeId,
+        title: "Initial deployment via provisioner",
+      });
+    }
     console.log("   ✓ Deployment triggered");
 
     // 8. Setup auto-deploy for tini-works repos
