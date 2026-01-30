@@ -7,7 +7,6 @@
 
 import { readFileSync, existsSync } from "fs";
 import { parse as parseYaml } from "yaml";
-import { basename, dirname } from "path";
 import {
   createDokployClient,
   type DokployClient,
@@ -17,9 +16,9 @@ import type {
   ProvisionConfig,
   ApplicationConfig,
   ComposeConfig,
-  isApplicationConfig,
-  isComposeConfig,
 } from "./lib/types";
+import { getSubdomainFromPath } from "./lib/subdomain";
+import { getOrgConfig } from "./lib/github-orgs";
 
 const DOMAIN_SUFFIX = "apps.quickable.co";
 
@@ -32,15 +31,6 @@ interface ProvisionResult {
   projectId?: string;
   domain?: string;
   error?: string;
-}
-
-/**
- * Extract subdomain from file path
- * apps/my-app/provision.yaml -> my-app
- */
-function getSubdomainFromPath(filePath: string): string {
-  const dir = dirname(filePath);
-  return basename(dir);
 }
 
 /**
@@ -86,15 +76,23 @@ async function provisionApplication(
         applicationId: app.applicationId,
         sourceType: "git",
       });
-      // Use custom git provider for public repos (no GitHub integration required)
-      const gitUrl = `https://github.com/${source.github.owner}/${source.github.repo}.git`;
+
+      // Check if org is configured for SSH access (private repos)
+      const orgConfig = getOrgConfig(source.github.owner);
+      const gitUrl = orgConfig
+        ? `git@github.com:${source.github.owner}/${source.github.repo}.git`
+        : `https://github.com/${source.github.owner}/${source.github.repo}.git`;
+
       await client.configureCustomGitProvider({
         applicationId: app.applicationId,
         customGitUrl: gitUrl,
         customGitBranch: source.github.branch,
         customGitBuildPath: source.github.path || "/",
+        customGitSSHKeyId: orgConfig?.sshKeyId,
       });
-      console.log(`   ✓ Git source: ${gitUrl}@${source.github.branch}`);
+
+      const accessType = orgConfig ? "SSH (private)" : "HTTPS (public)";
+      console.log(`   ✓ Git source [${accessType}]: ${gitUrl}@${source.github.branch}`);
     } else if (source.type === "docker" && source.docker) {
       console.log("   → Configuring Docker source...");
       await client.configureDockerProvider({
@@ -236,15 +234,33 @@ async function provisionCompose(
     const source = composeSpec.source;
 
     if (source.type === "github" && source.github) {
-      console.log("   → Configuring GitHub source...");
-      await client.configureComposeGitHubProvider({
-        composeId: compose.composeId,
-        owner: source.github.owner,
-        repository: source.github.repo,
-        branch: source.github.branch,
-        buildPath: source.github.composePath || "docker-compose.yaml",
-      });
-      console.log(`   ✓ GitHub source: ${source.github.owner}/${source.github.repo}`);
+      console.log("   → Configuring Git source...");
+
+      // Check if org is configured for SSH access (private repos)
+      const orgConfig = getOrgConfig(source.github.owner);
+
+      if (orgConfig) {
+        // Use custom git provider with SSH for private repos
+        const gitUrl = `git@github.com:${source.github.owner}/${source.github.repo}.git`;
+        await client.configureComposeCustomGitProvider({
+          composeId: compose.composeId,
+          customGitUrl: gitUrl,
+          customGitBranch: source.github.branch,
+          customGitBuildPath: source.github.composePath || "docker-compose.yaml",
+          customGitSSHKeyId: orgConfig.sshKeyId,
+        });
+        console.log(`   ✓ Git source [SSH (private)]: ${gitUrl}@${source.github.branch}`);
+      } else {
+        // Use GitHub provider for public repos
+        await client.configureComposeGitHubProvider({
+          composeId: compose.composeId,
+          owner: source.github.owner,
+          repository: source.github.repo,
+          branch: source.github.branch,
+          buildPath: source.github.composePath || "docker-compose.yaml",
+        });
+        console.log(`   ✓ GitHub source [HTTPS (public)]: ${source.github.owner}/${source.github.repo}`);
+      }
     }
 
     // 5. Configure environment variables
