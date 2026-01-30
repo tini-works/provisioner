@@ -91,11 +91,17 @@ async function provisionApplication(
     // Use prebuilt image if available (for private repos built by GitHub Actions)
     if (prebuiltImage) {
       console.log("   → Configuring Docker source (prebuilt)...");
+      // GHCR images from tini-works need registry credentials
+      // Registry ID for GHCR tini-works: ytaBlVofa-w7IDUajjpiw
+      const ghcrRegistryId = prebuiltImage.startsWith("ghcr.io/tini-works/")
+        ? "ytaBlVofa-w7IDUajjpiw"
+        : undefined;
       await client.configureDockerProvider({
         applicationId: app.applicationId,
         dockerImage: prebuiltImage,
+        registryId: ghcrRegistryId,
       });
-      console.log(`   ✓ Docker image: ${prebuiltImage}`);
+      console.log(`   ✓ Docker image: ${prebuiltImage}${ghcrRegistryId ? " (with GHCR registry)" : ""}`);
     } else if (source.type === "github" && source.github) {
       console.log("   → Configuring Git source...");
       // First, set sourceType to "git" so Dokploy knows to clone
