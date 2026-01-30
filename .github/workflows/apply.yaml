@@ -175,8 +175,8 @@ jobs:
               docker push "$image_tag"
               docker push "$image_latest"
 
-              # Add to prebuilt images JSON
-              jq --arg subdomain "$subdomain" --arg image "$image_latest" \
+              # Add to prebuilt images JSON (use -c for compact single-line output)
+              jq -c --arg subdomain "$subdomain" --arg image "$image_latest" \
                 '. + {($subdomain): $image}' /tmp/prebuilt_images.json > /tmp/prebuilt_images.json.tmp
               mv /tmp/prebuilt_images.json.tmp /tmp/prebuilt_images.json
 
