@@ -355,6 +355,15 @@ export class DokployClient {
     });
   }
 
+  async configureComposeCustomGitProvider(
+    params: CustomGitProviderRequest & { composeId: string }
+  ): Promise<void> {
+    await this.request("/compose.saveGitProvider", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
+  }
+
   async configureComposeEnvironment(params: EnvironmentRequest): Promise<void> {
     await this.request("/compose.saveEnvironment", {
       method: "POST",
