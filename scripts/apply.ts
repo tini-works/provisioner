@@ -394,7 +394,7 @@ function printAutoUpdateInstructions(results: ProvisionResult[]) {
      deploy:
        runs-on: ubuntu-latest
        steps:
-         - uses: quickable/deploy-action@v1
+         - uses: tini-works/provisioner/deploy-action@main
            with:
              ${type}-id: \${{ vars.DOKPLOY_APP_ID }}
              api-token: \${{ secrets.DOKPLOY_DEPLOY_TOKEN }}

@@ -19,7 +19,7 @@ inputs:
   api-url:
     description: "Dokploy API URL"
     required: false
-    default: "https://dokploy.quickable.co"
+    default: "https://apps.quickable.co"
   title:
     description: "Deployment title/description"
     required: false
