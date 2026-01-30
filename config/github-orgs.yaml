@@ -1,6 +1,7 @@
-# GitHub organizations with SSH key access for private repos
-# When source.github.owner matches an org here, SSH cloning is used
+# GitHub organizations with private repo access
+# When source.github.owner matches an org here, GitHub provider is used
 orgs:
   tini-works:
-    sshKeyId: T0gw6iBOVzWT7-lq_Gqvc
-    description: "tini-works org deploy key (proto-medalpha)"
+    githubId: W6uKDj7mTCtzLWplO_Z5m  # GitHub OAuth app with tini-works access
+    sshKeyId: T0gw6iBOVzWT7-lq_Gqvc   # Fallback SSH key (deprecated)
+    description: "tini-works org - uses GitHub provider for private repos"

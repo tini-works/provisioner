@@ -87,6 +87,7 @@ export interface GitHubProviderRequest {
   branch: string;
   buildPath?: string;
   triggerType?: "push" | "manual";
+  githubId?: string; // GitHub OAuth app ID for private repo access
 }
 
 export interface DockerProviderRequest {
@@ -250,6 +251,8 @@ export class DokployClient {
       body: JSON.stringify({
         ...params,
         triggerType: params.triggerType || "push",
+        // Include githubId for private repo access if provided
+        ...(params.githubId && { githubId: params.githubId }),
       }),
     });
   }

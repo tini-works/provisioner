@@ -75,134 +75,8 @@ jobs:
           echo "Deleted:"
           echo "$deleted"
 
-  build-images:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_added_modified == 'true'
-    runs-on: self-hosted
-    outputs:
-      prebuilt_images: ${{ steps.build.outputs.prebuilt_images }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build images for private repos
-        id: build
-        env:
-          GH_TOKEN: ${{ secrets.GH_ORG_TOKEN }}
-        run: |
-          # Initialize prebuilt images JSON
-          echo '{}' > /tmp/prebuilt_images.json
-
-          for file in ${{ needs.detect-changes.outputs.added_modified }}; do
-            echo "=== Processing: $file ==="
-
-            # Extract subdomain from path
-            filename=$(basename "$file")
-            if [ "$filename" = "provision.yaml" ]; then
-              subdomain=$(dirname "$file" | xargs basename)
-            else
-              subdomain="${filename%.yaml}"
-            fi
-            echo "Subdomain: $subdomain"
-
-            # Parse the provision file to check if it's a private org repo
-            if ! command -v yq &> /dev/null; then
-              echo "yq not found, installing..."
-              curl -sL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /tmp/yq
-              chmod +x /tmp/yq
-              YQ=/tmp/yq
-            else
-              YQ=yq
-            fi
-
-            source_type=$($YQ '.spec.source.type' "$file")
-            owner=$($YQ '.spec.source.github.owner // ""' "$file")
-            repo=$($YQ '.spec.source.github.repo // ""' "$file")
-            branch=$($YQ '.spec.source.github.branch // "main"' "$file")
-            build_type=$($YQ '.spec.build.type // "dockerfile"' "$file")
-            dockerfile=$($YQ '.spec.build.dockerfile // "Dockerfile"' "$file")
-            context=$($YQ '.spec.build.context // "."' "$file")
-
-            echo "Source: $source_type, Owner: $owner, Repo: $repo, Branch: $branch"
-
-            # Check if this is a tini-works private repo that needs building
-            if [ "$source_type" = "github" ] && [ "$owner" = "tini-works" ] && [ "$build_type" = "dockerfile" ]; then
-              echo "🔨 Building Docker image for private repo: $owner/$repo"
-
-              # Clone the private repo
-              clone_dir="/tmp/build-$subdomain"
-              rm -rf "$clone_dir"
-
-              git clone --depth 1 --branch "$branch" \
-                "https://x-access-token:${GH_TOKEN}@github.com/${owner}/${repo}.git" \
-                "$clone_dir"
-
-              # Build image
-              image_tag="ghcr.io/tini-works/${subdomain}:sha-${GITHUB_SHA::7}"
-              image_latest="ghcr.io/tini-works/${subdomain}:latest"
-
-              echo "Building: $image_tag"
-
-              # Try normal build first, if it fails try with skip-tsc workaround
-              if ! docker build \
-                -t "$image_tag" \
-                -t "$image_latest" \
-                -f "$clone_dir/$dockerfile" \
-                "$clone_dir/$context" 2>&1; then
-
-                echo "⚠️ Normal build failed, trying with tsc skip workaround..."
-
-                # Create a modified Dockerfile that skips tsc using base64
-                # This Dockerfile: builds monorepo, skips tsc, serves with nginx
-                DOCKERFILE_B64="IyBCdWlsZCBzdGFnZSAtIFNraXAgVHlwZVNjcmlwdCBjaGVja2luZwpGUk9NIG5vZGU6MjAtYWxwaW5lIEFTIGJ1aWxkZXIKUlVOIGNvcmVwYWNrIGVuYWJsZSAmJiBjb3JlcGFjayBwcmVwYXJlIHBucG1AbGF0ZXN0IC0tYWN0aXZhdGUKV09SS0RJUiAvYXBwCkNPUFkgcGFja2FnZS5qc29uIHBucG0tbG9jay55YW1sIC4vCkNPUFkgcG5wbS13b3Jrc3BhY2UueWFtbCogLi8KUlVOIG1rZGlyIC1wIHBhY2thZ2VzL3Rva2VucyBwYWNrYWdlcy91aSBhcHBzCkNPUFkgLiAvdG1wL3NvdXJjZS8KUlVOIGNwIC90bXAvc291cmNlL3BhY2thZ2VzL3Rva2Vucy9wYWNrYWdlLmpzb24gcGFja2FnZXMvdG9rZW5zLyAyPi9kZXYvbnVsbCB8fCB0cnVlICYmIFwKICAgIGNwIC90bXAvc291cmNlL3BhY2thZ2VzL3VpL3BhY2thZ2UuanNvbiBwYWNrYWdlcy91aS8gMj4vZGV2L251bGwgfHwgdHJ1ZSAmJiBcCiAgICBmb3IgZCBpbiAvdG1wL3NvdXJjZS9hcHBzLyovOyBkbyBuYW1lPSQoYmFzZW5hbWUgIiRkIik7IG1rZGlyIC1wICJhcHBzLyRuYW1lIjsgY3AgIiRkL3BhY2thZ2UuanNvbiIgImFwcHMvJG5hbWUvIiAyPi9kZXYvbnVsbCB8fCB0cnVlOyBkb25lClJVTiBwbnBtIGluc3RhbGwgLS1mcm96ZW4tbG9ja2ZpbGUgfHwgcG5wbSBpbnN0YWxsCkNPUFkgLiAuClJVTiBmb3IgcGtnIGluIHBhY2thZ2VzLyovOyBkbyBpZiBbIC1mICIkcGtnL3BhY2thZ2UuanNvbiIgXTsgdGhlbiAoY2QgIiRwa2ciICYmIHBucG0gYnVpbGQgMj4vZGV2L251bGwgfHwgdHJ1ZSk7IGZpOyBkb25lClJVTiBmb3IgYXBwIGluIGFwcHMvKi87IGRvIGlmIFsgLWYgIiRhcHAvcGFja2FnZS5qc29uIiBdOyB0aGVuIChjZCAiJGFwcCIgJiYgcG5wbSBleGVjIHZpdGUgYnVpbGQgMj4vZGV2L251bGwgfHwgcG5wbSBidWlsZCAyPi9kZXYvbnVsbCB8fCB0cnVlKTsgZmk7IGRvbmUKRlJPTSBuZ2lueDphbHBpbmUKQ09QWSAtLWZyb209YnVpbGRlciAvYXBwL2FwcHMvKi9kaXN0IC91c3Ivc2hhcmUvbmdpbngvaHRtbC8KUlVOIGVjaG8gJ3NlcnZlciB7IGxpc3RlbiA4MDsgcm9vdCAvdXNyL3NoYXJlL25naW54L2h0bWw7IGluZGV4IGluZGV4Lmh0bWw7IGxvY2F0aW9uIC8geyB0cnlfZmlsZXMgJHVyaSAkdXJpLyAvaW5kZXguaHRtbDsgfSB9JyA+IC9ldGMvbmdpbngvY29uZi5kL2RlZmF1bHQuY29uZgpFWFBPU0UgODAKQ01EIFsibmdpbngiLCAiLWciLCAiZGFlbW9uIG9mZjsiXQo="
-                echo "$DOCKERFILE_B64" | base64 -d > "$clone_dir/Dockerfile.notsc"
-
-                docker build \
-                  -t "$image_tag" \
-                  -t "$image_latest" \
-                  -f "$clone_dir/Dockerfile.notsc" \
-                  "$clone_dir/$context"
-              fi
-
-              # Push to GHCR
-              echo "Pushing to GHCR..."
-              docker push "$image_tag"
-              docker push "$image_latest"
-
-              # Make the package public so Dokploy can pull it without auth
-              echo "Making GHCR package public..."
-              gh api --method PUT \
-                -H "Accept: application/vnd.github+json" \
-                "/orgs/tini-works/packages/container/${subdomain}/visibility" \
-                -f visibility=public 2>/dev/null || echo "⚠️ Could not make package public (may need admin)"
-
-              # Add to prebuilt images JSON (use -c for compact single-line output)
-              jq -c --arg subdomain "$subdomain" --arg image "$image_latest" \
-                '. + {($subdomain): $image}' /tmp/prebuilt_images.json > /tmp/prebuilt_images.json.tmp
-              mv /tmp/prebuilt_images.json.tmp /tmp/prebuilt_images.json
-
-              # Cleanup
-              rm -rf "$clone_dir"
-
-              echo "✅ Built and pushed: $image_latest"
-            else
-              echo "⏭️ Skipping build (not a tini-works dockerfile source)"
-            fi
-          done
-
-          # Output the prebuilt images JSON
-          prebuilt=$(cat /tmp/prebuilt_images.json)
-          echo "Prebuilt images: $prebuilt"
-          echo "prebuilt_images=$prebuilt" >> $GITHUB_OUTPUT
-
   provision:
-    needs: [detect-changes, build-images]
+    needs: detect-changes
     if: needs.detect-changes.outputs.has_added_modified == 'true'
     runs-on: self-hosted
     steps:
@@ -218,12 +92,10 @@ jobs:
         id: provision
         run: |
           echo "Provisioning: ${{ needs.detect-changes.outputs.added_modified }}"
-          echo "Prebuilt images: ${{ needs.build-images.outputs.prebuilt_images }}"
           bun run scripts/apply.ts ${{ needs.detect-changes.outputs.added_modified }}
         env:
           DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
-          PREBUILT_IMAGES: ${{ needs.build-images.outputs.prebuilt_images }}
           # Pass org secrets that apps can reference
           SECRET_SHARED_DATABASE_URL: ${{ secrets.SHARED_DATABASE_URL }}
 
@@ -282,7 +154,7 @@ jobs:
           echo "$(date -Iseconds) | ${{ github.actor }} | deprovision | ${{ job.status }} | ${{ needs.detect-changes.outputs.deleted }}" >> audit.log
 
   summary:
-    needs: [detect-changes, build-images, provision, deprovision]
+    needs: [detect-changes, provision, deprovision]
     if: always()
     runs-on: self-hosted
     steps:
@@ -292,13 +164,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ needs.detect-changes.outputs.has_added_modified }}" == "true" ]; then
-            echo "### Built Images" >> $GITHUB_STEP_SUMMARY
-            echo "Status: ${{ needs.build-images.result }}" >> $GITHUB_STEP_SUMMARY
-            echo '```json' >> $GITHUB_STEP_SUMMARY
-            echo '${{ needs.build-images.outputs.prebuilt_images }}' >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-
             echo "### Provisioned" >> $GITHUB_STEP_SUMMARY
             echo "Status: ${{ needs.provision.result }}" >> $GITHUB_STEP_SUMMARY
             echo "Files: ${{ needs.detect-changes.outputs.added_modified }}" >> $GITHUB_STEP_SUMMARY

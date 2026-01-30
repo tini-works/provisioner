@@ -6,7 +6,8 @@ import { readFileSync, existsSync } from "fs";
 import { parse as parseYaml } from "yaml";
 
 interface OrgConfig {
-  sshKeyId: string;
+  githubId?: string;  // GitHub OAuth app ID (preferred)
+  sshKeyId?: string;  // SSH key ID (fallback)
   description?: string;
 }
 
