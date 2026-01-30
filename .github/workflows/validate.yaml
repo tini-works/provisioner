@@ -3,6 +3,7 @@ name: Validate Provision Config
 on:
   pull_request:
     paths:
+      - "apps/*.yaml"
       - "apps/**/provision.yaml"
       - "schemas/**"
       - "config/**"
@@ -25,9 +26,9 @@ jobs:
       - name: Get changed provision files
         id: changes
         run: |
-          # Get list of added/modified provision.yaml files (exclude deleted)
+          # Get list of added/modified provision files (both formats, exclude deleted)
           files=$(git diff --name-only --diff-filter=AM ${{ github.event.pull_request.base.sha }} ${{ github.sha }} \
-            | grep '^apps/.*/provision\.yaml$' || true)
+            | grep -E '^apps/[^/]+\.yaml$|^apps/.*/provision\.yaml$' || true)
 
           if [ -z "$files" ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -66,6 +67,7 @@ jobs:
 
       - name: Comment validation result (success)
         if: success()
+        continue-on-error: true  # Fork PRs can't write comments
         uses: actions/github-script@v7
         with:
           script: |
@@ -89,6 +91,7 @@ jobs:
 
       - name: Comment validation result (failure)
         if: failure()
+        continue-on-error: true  # Fork PRs can't write comments
         uses: actions/github-script@v7
         with:
           script: |
@@ -116,10 +119,15 @@ jobs:
 
       - name: Check for reserved subdomains
         run: |
-          # Extract subdomain names from changed file paths
+          # Extract subdomain names from changed file paths (handles both formats)
           for file in ${{ needs.detect-changes.outputs.changed_files }}; do
-            # Extract directory name (subdomain)
-            subdomain=$(dirname "$file" | xargs basename)
+            # Extract subdomain (apps/x.yaml → x, apps/x/provision.yaml → x)
+            filename=$(basename "$file")
+            if [ "$filename" = "provision.yaml" ]; then
+              subdomain=$(dirname "$file" | xargs basename)
+            else
+              subdomain="${filename%.yaml}"
+            fi
 
             # Load reserved list
             reserved=$(grep -E "^\s*-\s+" config/reserved-subdomains.yaml | sed 's/.*- //' | tr '\n' '|' | sed 's/|$//')
