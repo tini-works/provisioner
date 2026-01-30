@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   detect-changes:
@@ -74,8 +75,111 @@ jobs:
           echo "Deleted:"
           echo "$deleted"
 
-  provision:
+  build-images:
     needs: detect-changes
+    if: needs.detect-changes.outputs.has_added_modified == 'true'
+    runs-on: self-hosted
+    outputs:
+      prebuilt_images: ${{ steps.build.outputs.prebuilt_images }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build images for private repos
+        id: build
+        env:
+          GH_TOKEN: ${{ secrets.GH_ORG_TOKEN }}
+        run: |
+          # Initialize prebuilt images JSON
+          echo '{}' > /tmp/prebuilt_images.json
+
+          for file in ${{ needs.detect-changes.outputs.added_modified }}; do
+            echo "=== Processing: $file ==="
+
+            # Extract subdomain from path
+            filename=$(basename "$file")
+            if [ "$filename" = "provision.yaml" ]; then
+              subdomain=$(dirname "$file" | xargs basename)
+            else
+              subdomain="${filename%.yaml}"
+            fi
+            echo "Subdomain: $subdomain"
+
+            # Parse the provision file to check if it's a private org repo
+            if ! command -v yq &> /dev/null; then
+              echo "yq not found, installing..."
+              curl -sL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /tmp/yq
+              chmod +x /tmp/yq
+              YQ=/tmp/yq
+            else
+              YQ=yq
+            fi
+
+            source_type=$($YQ '.spec.source.type' "$file")
+            owner=$($YQ '.spec.source.github.owner // ""' "$file")
+            repo=$($YQ '.spec.source.github.repo // ""' "$file")
+            branch=$($YQ '.spec.source.github.branch // "main"' "$file")
+            build_type=$($YQ '.spec.build.type // "dockerfile"' "$file")
+            dockerfile=$($YQ '.spec.build.dockerfile // "Dockerfile"' "$file")
+            context=$($YQ '.spec.build.context // "."' "$file")
+
+            echo "Source: $source_type, Owner: $owner, Repo: $repo, Branch: $branch"
+
+            # Check if this is a tini-works private repo that needs building
+            if [ "$source_type" = "github" ] && [ "$owner" = "tini-works" ] && [ "$build_type" = "dockerfile" ]; then
+              echo "🔨 Building Docker image for private repo: $owner/$repo"
+
+              # Clone the private repo
+              clone_dir="/tmp/build-$subdomain"
+              rm -rf "$clone_dir"
+
+              git clone --depth 1 --branch "$branch" \
+                "https://x-access-token:${GH_TOKEN}@github.com/${owner}/${repo}.git" \
+                "$clone_dir"
+
+              # Build image
+              image_tag="ghcr.io/tini-works/${subdomain}:sha-${GITHUB_SHA::7}"
+              image_latest="ghcr.io/tini-works/${subdomain}:latest"
+
+              echo "Building: $image_tag"
+              docker build \
+                -t "$image_tag" \
+                -t "$image_latest" \
+                -f "$clone_dir/$dockerfile" \
+                "$clone_dir/$context"
+
+              # Push to GHCR
+              echo "Pushing to GHCR..."
+              docker push "$image_tag"
+              docker push "$image_latest"
+
+              # Add to prebuilt images JSON
+              jq --arg subdomain "$subdomain" --arg image "$image_latest" \
+                '. + {($subdomain): $image}' /tmp/prebuilt_images.json > /tmp/prebuilt_images.json.tmp
+              mv /tmp/prebuilt_images.json.tmp /tmp/prebuilt_images.json
+
+              # Cleanup
+              rm -rf "$clone_dir"
+
+              echo "✅ Built and pushed: $image_latest"
+            else
+              echo "⏭️ Skipping build (not a tini-works dockerfile source)"
+            fi
+          done
+
+          # Output the prebuilt images JSON
+          prebuilt=$(cat /tmp/prebuilt_images.json)
+          echo "Prebuilt images: $prebuilt"
+          echo "prebuilt_images=$prebuilt" >> $GITHUB_OUTPUT
+
+  provision:
+    needs: [detect-changes, build-images]
     if: needs.detect-changes.outputs.has_added_modified == 'true'
     runs-on: self-hosted
     steps:
@@ -91,12 +195,13 @@ jobs:
         id: provision
         run: |
           echo "Provisioning: ${{ needs.detect-changes.outputs.added_modified }}"
+          echo "Prebuilt images: ${{ needs.build-images.outputs.prebuilt_images }}"
           bun run scripts/apply.ts ${{ needs.detect-changes.outputs.added_modified }}
         env:
           DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          PREBUILT_IMAGES: ${{ needs.build-images.outputs.prebuilt_images }}
           # Pass org secrets that apps can reference
-          # Add more SECRET_* vars as needed
           SECRET_SHARED_DATABASE_URL: ${{ secrets.SHARED_DATABASE_URL }}
 
       - name: Write audit log
@@ -154,7 +259,7 @@ jobs:
           echo "$(date -Iseconds) | ${{ github.actor }} | deprovision | ${{ job.status }} | ${{ needs.detect-changes.outputs.deleted }}" >> audit.log
 
   summary:
-    needs: [detect-changes, provision, deprovision]
+    needs: [detect-changes, build-images, provision, deprovision]
     if: always()
     runs-on: self-hosted
     steps:
@@ -164,6 +269,13 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ needs.detect-changes.outputs.has_added_modified }}" == "true" ]; then
+            echo "### Built Images" >> $GITHUB_STEP_SUMMARY
+            echo "Status: ${{ needs.build-images.result }}" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo '${{ needs.build-images.outputs.prebuilt_images }}' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
             echo "### Provisioned" >> $GITHUB_STEP_SUMMARY
             echo "Status: ${{ needs.provision.result }}" >> $GITHUB_STEP_SUMMARY
             echo "Files: ${{ needs.detect-changes.outputs.added_modified }}" >> $GITHUB_STEP_SUMMARY

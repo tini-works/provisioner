@@ -3,7 +3,8 @@
  * Adds a GitHub Actions workflow to the source repo to trigger Dokploy redeploys
  */
 
-const DEPLOY_WORKFLOW = (appId: string, type: "application" | "compose") => `name: Deploy to apps.quickable.co
+// Workflow for repos where Dokploy pulls from git (public repos)
+const DEPLOY_WORKFLOW_GIT = (appId: string, type: "application" | "compose") => `name: Deploy to apps.quickable.co
 on:
   push:
     branches: [main]
@@ -22,12 +23,61 @@ jobs:
           echo "Deployment triggered"
 `;
 
+// Workflow for private repos using prebuilt images
+// This builds the image locally and pushes to GHCR, then triggers Dokploy
+const DEPLOY_WORKFLOW_PREBUILT = (appId: string, subdomain: string, dockerfile: string, context: string) => `name: Build and Deploy to apps.quickable.co
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: \${{ github.actor }}
+          password: \${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          IMAGE="ghcr.io/tini-works/${subdomain}:latest"
+          IMAGE_SHA="ghcr.io/tini-works/${subdomain}:sha-\${GITHUB_SHA::7}"
+
+          docker build -t "$IMAGE" -t "$IMAGE_SHA" -f ${dockerfile} ${context}
+          docker push "$IMAGE"
+          docker push "$IMAGE_SHA"
+
+          echo "Built and pushed: $IMAGE"
+
+      - name: Trigger Dokploy deployment
+        run: |
+          curl -s -X POST "https://apps.quickable.co/api/application.redeploy" \\
+            -H "Content-Type: application/json" \\
+            -H "x-api-key: \${{ secrets.DOKPLOY_API_KEY }}" \\
+            -d '{"applicationId": "${appId}"}'
+          echo "Deployment triggered"
+`;
+
 interface SetupAutoDeployParams {
   owner: string;
   repo: string;
   branch: string;
   applicationId?: string;
   composeId?: string;
+  usePrebuilt?: boolean;
+  subdomain?: string;
+  dockerfile?: string;
+  context?: string;
 }
 
 /**
@@ -42,7 +92,17 @@ function canSetupAutoDeploy(owner: string): boolean {
  * Setup auto-deploy workflow in the source repo
  */
 export async function setupAutoDeploy(params: SetupAutoDeployParams): Promise<boolean> {
-  const { owner, repo, branch, applicationId, composeId } = params;
+  const {
+    owner,
+    repo,
+    branch,
+    applicationId,
+    composeId,
+    usePrebuilt = false,
+    subdomain = "",
+    dockerfile = "Dockerfile",
+    context = "."
+  } = params;
 
   if (!canSetupAutoDeploy(owner)) {
     return false;
@@ -68,8 +128,14 @@ export async function setupAutoDeploy(params: SetupAutoDeployParams): Promise<bo
 
     const existingSha = checkResult.stdout.toString().trim();
 
-    // Create workflow content
-    const workflowContent = DEPLOY_WORKFLOW(id, type);
+    // Create workflow content based on whether we're using prebuilt images
+    let workflowContent: string;
+    if (usePrebuilt && applicationId && subdomain) {
+      workflowContent = DEPLOY_WORKFLOW_PREBUILT(applicationId, subdomain, dockerfile, context);
+    } else {
+      workflowContent = DEPLOY_WORKFLOW_GIT(id, type);
+    }
+
     const base64Content = Buffer.from(workflowContent).toString("base64");
 
     // Prepare the API request body
@@ -102,7 +168,8 @@ export async function setupAutoDeploy(params: SetupAutoDeployParams): Promise<bo
       return false;
     }
 
-    console.log(`   ✓ Auto-deploy workflow added to ${owner}/${repo}`);
+    const workflowType = usePrebuilt ? "build+deploy" : "deploy-only";
+    console.log(`   ✓ Auto-deploy workflow (${workflowType}) added to ${owner}/${repo}`);
     return true;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

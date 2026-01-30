@@ -2,5 +2,5 @@
 # When source.github.owner matches an org here, SSH cloning is used
 orgs:
   tini-works:
-    sshKeyId: PJoFAY_zF1sdXpOGpbHIM
-    description: "tini-works org deploy key"
+    sshKeyId: T0gw6iBOVzWT7-lq_Gqvc
+    description: "tini-works org deploy key (proto-medalpha)"

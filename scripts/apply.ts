@@ -23,6 +23,18 @@ import { setupAutoDeploy, ensureDeploySecret } from "./lib/auto-deploy";
 
 const DOMAIN_SUFFIX = "apps.quickable.co";
 
+// Load prebuilt images from environment (set by GitHub Actions workflow)
+function getPrebuiltImages(): Record<string, string> {
+  const prebuiltJson = Bun.env.PREBUILT_IMAGES;
+  if (!prebuiltJson) return {};
+  try {
+    return JSON.parse(prebuiltJson);
+  } catch {
+    console.log("⚠️  Could not parse PREBUILT_IMAGES env var");
+    return {};
+  }
+}
+
 interface ProvisionResult {
   success: boolean;
   appName: string;
@@ -45,10 +57,15 @@ async function provisionApplication(
 ): Promise<ProvisionResult> {
   const appName = config.metadata.name;
   const fullDomain = `${subdomain}.${DOMAIN_SUFFIX}`;
+  const prebuiltImages = getPrebuiltImages();
+  const prebuiltImage = prebuiltImages[subdomain];
 
   try {
     console.log(`\n📦 Provisioning Application: ${appName}`);
     console.log(`   Subdomain: ${fullDomain}`);
+    if (prebuiltImage) {
+      console.log(`   🐳 Using prebuilt image: ${prebuiltImage}`);
+    }
 
     // 1. Create project for isolation (returns project + default environment)
     console.log("   → Creating project...");
@@ -71,7 +88,15 @@ async function provisionApplication(
     const appSpec = config.spec as ApplicationConfig["spec"];
     const source = appSpec.source;
 
-    if (source.type === "github" && source.github) {
+    // Use prebuilt image if available (for private repos built by GitHub Actions)
+    if (prebuiltImage) {
+      console.log("   → Configuring Docker source (prebuilt)...");
+      await client.configureDockerProvider({
+        applicationId: app.applicationId,
+        dockerImage: prebuiltImage,
+      });
+      console.log(`   ✓ Docker image: ${prebuiltImage}`);
+    } else if (source.type === "github" && source.github) {
       console.log("   → Configuring Git source...");
       // First, set sourceType to "git" so Dokploy knows to clone
       await client.updateApplication({
@@ -104,8 +129,8 @@ async function provisionApplication(
       console.log(`   ✓ Docker image: ${source.docker.image}:${source.docker.tag}`);
     }
 
-    // 5. Configure build type
-    if (appSpec.build) {
+    // 5. Configure build type (skip for prebuilt images)
+    if (appSpec.build && !prebuiltImage) {
       console.log("   → Configuring build type...");
       await client.configureBuildType({
         applicationId: app.applicationId,
@@ -115,6 +140,8 @@ async function provisionApplication(
         dockerBuildStage: "",
       });
       console.log(`   ✓ Build type: ${appSpec.build.type}`);
+    } else if (prebuiltImage) {
+      console.log(`   ✓ Build type: prebuilt image (skipped)`);
     }
 
     // 6. Set resource limits
@@ -188,6 +215,11 @@ async function provisionApplication(
           repo: source.github.repo,
           branch: source.github.branch,
           applicationId: app.applicationId,
+          // Use prebuilt workflow for private repos (when prebuilt image was used)
+          usePrebuilt: !!prebuiltImage,
+          subdomain: subdomain,
+          dockerfile: appSpec.build?.dockerfile || "Dockerfile",
+          context: appSpec.build?.context || ".",
         });
       }
     }
