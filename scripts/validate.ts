@@ -15,6 +15,7 @@ import type {
   ValidationError,
   ValidationWarning,
 } from "./lib/types";
+import { isPrivateOrg } from "./lib/github-orgs";
 
 // Load JSON Schema
 const schemaPath = new URL("../schemas/provision.schema.json", import.meta.url);
@@ -137,28 +138,57 @@ async function validateFile(filePath: string): Promise<ValidationResult> {
 
       // Verify GitHub repo exists (optional, can be slow)
       if (Bun.env.VALIDATE_SOURCES === "true") {
-        try {
-          const response = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}`,
-            {
-              headers: Bun.env.GITHUB_TOKEN
-                ? { Authorization: `token ${Bun.env.GITHUB_TOKEN}` }
-                : {},
+        const isPrivate = isPrivateOrg(owner);
+
+        if (isPrivate) {
+          // For private repos, use git ls-remote over SSH
+          try {
+            const proc = Bun.spawn(
+              ["git", "ls-remote", "--exit-code", `git@github.com:${owner}/${repo}.git`, "HEAD"],
+              { stdout: "pipe", stderr: "pipe" }
+            );
+            const exitCode = await proc.exited;
+
+            if (exitCode !== 0) {
+              const stderr = await new Response(proc.stderr).text();
+              errors.push({
+                type: "error",
+                message: `Private repository ${owner}/${repo} not accessible via SSH: ${stderr.trim()}`,
+                path: "/spec/source/github",
+              });
             }
-          );
-          if (!response.ok) {
-            errors.push({
-              type: "error",
-              message: `GitHub repository ${owner}/${repo} not found or not accessible`,
+          } catch (e) {
+            warnings.push({
+              type: "warning",
+              message: `Could not verify private repository via SSH: ${e}`,
               path: "/spec/source/github",
             });
           }
-        } catch (e) {
-          warnings.push({
-            type: "warning",
-            message: `Could not verify GitHub repository: ${e}`,
-            path: "/spec/source/github",
-          });
+        } else {
+          // For public repos, use GitHub API
+          try {
+            const response = await fetch(
+              `https://api.github.com/repos/${owner}/${repo}`,
+              {
+                headers: Bun.env.GITHUB_TOKEN
+                  ? { Authorization: `token ${Bun.env.GITHUB_TOKEN}` }
+                  : {},
+              }
+            );
+            if (!response.ok) {
+              errors.push({
+                type: "error",
+                message: `GitHub repository ${owner}/${repo} not found or not accessible`,
+                path: "/spec/source/github",
+              });
+            }
+          } catch (e) {
+            warnings.push({
+              type: "warning",
+              message: `Could not verify GitHub repository: ${e}`,
+              path: "/spec/source/github",
+            });
+          }
         }
       }
 
