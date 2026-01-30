@@ -19,6 +19,7 @@ import type {
 } from "./lib/types";
 import { getSubdomainFromPath } from "./lib/subdomain";
 import { getOrgConfig } from "./lib/github-orgs";
+import { setupAutoDeploy, ensureDeploySecret } from "./lib/auto-deploy";
 
 const DOMAIN_SUFFIX = "apps.quickable.co";
 
@@ -31,6 +32,7 @@ interface ProvisionResult {
   projectId?: string;
   domain?: string;
   error?: string;
+  autoDeployConfigured?: boolean;
 }
 
 /**
@@ -176,12 +178,27 @@ async function provisionApplication(
     });
     console.log("   ✓ Deployment triggered");
 
+    // 10. Setup auto-deploy for tini-works repos
+    let autoDeployConfigured = false;
+    if (source.type === "github" && source.github) {
+      const secretOk = await ensureDeploySecret(source.github.owner, source.github.repo);
+      if (secretOk) {
+        autoDeployConfigured = await setupAutoDeploy({
+          owner: source.github.owner,
+          repo: source.github.repo,
+          branch: source.github.branch,
+          applicationId: app.applicationId,
+        });
+      }
+    }
+
     return {
       success: true,
       appName,
       subdomain,
       applicationId: app.applicationId,
       projectId: project.projectId,
+      autoDeployConfigured,
       domain: `https://${fullDomain}`,
     };
   } catch (e) {
@@ -312,6 +329,20 @@ async function provisionCompose(
     });
     console.log("   ✓ Deployment triggered");
 
+    // 8. Setup auto-deploy for tini-works repos
+    let autoDeployConfigured = false;
+    if (source.type === "github" && source.github) {
+      const secretOk = await ensureDeploySecret(source.github.owner, source.github.repo);
+      if (secretOk) {
+        autoDeployConfigured = await setupAutoDeploy({
+          owner: source.github.owner,
+          repo: source.github.repo,
+          branch: source.github.branch,
+          composeId: compose.composeId,
+        });
+      }
+    }
+
     return {
       success: true,
       appName,
@@ -319,6 +350,7 @@ async function provisionCompose(
       composeId: compose.composeId,
       projectId: project.projectId,
       domain: `https://${fullDomain}`,
+      autoDeployConfigured,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -366,14 +398,28 @@ async function applyFile(
  */
 function printAutoUpdateInstructions(results: ProvisionResult[]) {
   const successful = results.filter((r) => r.success);
+  const needsManualSetup = successful.filter((r) => !r.autoDeployConfigured);
 
-  if (successful.length === 0) return;
+  // Print auto-configured apps
+  const autoConfigured = successful.filter((r) => r.autoDeployConfigured);
+  if (autoConfigured.length > 0) {
+    console.log("\n" + "═".repeat(60));
+    console.log("🚀 AUTO-DEPLOY CONFIGURED");
+    console.log("═".repeat(60));
+    for (const result of autoConfigured) {
+      console.log(`   ✓ ${result.appName} → ${result.domain}`);
+      console.log(`     Pushes to main will auto-deploy`);
+    }
+  }
+
+  // Print manual setup instructions for external repos
+  if (needsManualSetup.length === 0) return;
 
   console.log("\n" + "═".repeat(60));
-  console.log("📋 AUTO-UPDATE SETUP INSTRUCTIONS");
+  console.log("📋 MANUAL AUTO-DEPLOY SETUP REQUIRED");
   console.log("═".repeat(60));
 
-  for (const result of successful) {
+  for (const result of needsManualSetup) {
     const id = result.applicationId || result.composeId;
     const type = result.applicationId ? "application" : "compose";
 
