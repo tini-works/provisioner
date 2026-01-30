@@ -73,7 +73,10 @@ async function provisionApplication(
         console.log(`   → Found existing application: ${app.applicationId}`);
       } else {
         // Project exists but no app - create one
-        const environment = await client.getDefaultEnvironment(existingProject.projectId);
+        const environment = projectDetails.environments?.[0];
+        if (!environment) {
+          throw new Error("No environment found in existing project");
+        }
         console.log("   → Creating application in existing project...");
         app = await client.createApplication({
           name: appName,
@@ -326,7 +329,10 @@ async function provisionCompose(
         console.log(`   → Found existing compose: ${compose.composeId}`);
       } else {
         // Project exists but no compose - create one
-        const environment = await client.getDefaultEnvironment(existingProject.projectId);
+        const environment = projectDetails.environments?.[0];
+        if (!environment) {
+          throw new Error("No environment found in existing project");
+        }
         console.log("   → Creating compose in existing project...");
         compose = await client.createCompose({
           name: appName,

@@ -27,6 +27,7 @@ export interface Project {
   description?: string;
   applications?: Application[];
   compose?: Compose[];
+  environments?: Environment[];
 }
 
 export interface Application {
