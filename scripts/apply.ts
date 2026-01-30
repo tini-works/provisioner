@@ -72,6 +72,8 @@ async function provisionApplication(
     const source = appSpec.source;
 
     if (source.type === "github" && source.github) {
+      // Default branch to "main" if not specified
+      const branch = source.github.branch || "main";
       // Check if org is configured with GitHub OAuth (preferred for private repos)
       const orgConfig = getOrgConfig(source.github.owner);
 
@@ -87,11 +89,11 @@ async function provisionApplication(
           applicationId: app.applicationId,
           repository: source.github.repo,
           owner: source.github.owner,
-          branch: source.github.branch,
+          branch: branch,
           buildPath: source.github.path || "/",
           githubId: orgConfig.githubId,
         });
-        console.log(`   ✓ GitHub source [OAuth]: ${source.github.owner}/${source.github.repo}@${source.github.branch}`);
+        console.log(`   ✓ GitHub source [OAuth]: ${source.github.owner}/${source.github.repo}@${branch}`);
       } else if (orgConfig?.sshKeyId) {
         // Fallback: Use custom Git provider with SSH for private repos
         console.log("   → Configuring Git source (SSH)...");
@@ -104,11 +106,11 @@ async function provisionApplication(
         await client.configureCustomGitProvider({
           applicationId: app.applicationId,
           customGitUrl: gitUrl,
-          customGitBranch: source.github.branch,
+          customGitBranch: branch,
           customGitBuildPath: source.github.path || "/",
           customGitSSHKeyId: orgConfig.sshKeyId,
         });
-        console.log(`   ✓ Git source [SSH]: ${gitUrl}@${source.github.branch}`);
+        console.log(`   ✓ Git source [SSH]: ${gitUrl}@${branch}`);
       } else {
         // Public repos use HTTPS
         console.log("   → Configuring Git source (HTTPS)...");
@@ -121,10 +123,10 @@ async function provisionApplication(
         await client.configureCustomGitProvider({
           applicationId: app.applicationId,
           customGitUrl: gitUrl,
-          customGitBranch: source.github.branch,
+          customGitBranch: branch,
           customGitBuildPath: source.github.path || "/",
         });
-        console.log(`   ✓ Git source [HTTPS]: ${gitUrl}@${source.github.branch}`);
+        console.log(`   ✓ Git source [HTTPS]: ${gitUrl}@${branch}`);
       }
     } else if (source.type === "docker" && source.docker) {
       console.log("   → Configuring Docker source...");
@@ -135,26 +137,23 @@ async function provisionApplication(
       console.log(`   ✓ Docker image: ${source.docker.image}:${source.docker.tag}`);
     }
 
-    // 5. Configure build type
-    if (appSpec.build) {
-      console.log("   → Configuring build type...");
-      await client.configureBuildType({
-        applicationId: app.applicationId,
-        buildType: appSpec.build.type,
-        dockerfile: appSpec.build.dockerfile || "Dockerfile",
-        dockerContextPath: appSpec.build.context || ".",
-        dockerBuildStage: "",
-      });
-      console.log(`   ✓ Build type: ${appSpec.build.type}`);
-    }
+    // 5. Configure build type (default: dockerfile)
+    const buildType = appSpec.build?.type || "dockerfile";
+    console.log("   → Configuring build type...");
+    await client.configureBuildType({
+      applicationId: app.applicationId,
+      buildType: buildType,
+      dockerfile: appSpec.build?.dockerfile || "Dockerfile",
+      dockerContextPath: appSpec.build?.context || ".",
+      dockerBuildStage: "",
+    });
+    console.log(`   ✓ Build type: ${buildType}`);
 
-    // 6. Set resource limits
+    // 6. Set resource limits (default: S)
+    const size = (appSpec.resources?.size || "S") as ResourceSize;
     console.log("   → Setting resource limits...");
-    await client.setResourceLimits(
-      app.applicationId,
-      appSpec.resources.size as ResourceSize
-    );
-    console.log(`   ✓ Resources: Size ${appSpec.resources.size}`);
+    await client.setResourceLimits(app.applicationId, size);
+    console.log(`   ✓ Resources: Size ${size}`);
 
     // 7. Configure environment variables
     if (appSpec.env) {
@@ -217,7 +216,7 @@ async function provisionApplication(
         autoDeployConfigured = await setupAutoDeploy({
           owner: source.github.owner,
           repo: source.github.repo,
-          branch: source.github.branch,
+          branch: source.github.branch || "main",
           applicationId: app.applicationId,
           subdomain: subdomain,
           dockerfile: appSpec.build?.dockerfile || "Dockerfile",
@@ -285,6 +284,8 @@ async function provisionCompose(
     const source = composeSpec.source;
 
     if (source.type === "github" && source.github) {
+      // Default branch to "main" if not specified
+      const branch = source.github.branch || "main";
       console.log("   → Configuring Git source...");
 
       // Check if org is configured for SSH access (private repos)
@@ -296,18 +297,18 @@ async function provisionCompose(
         await client.configureComposeCustomGitProvider({
           composeId: compose.composeId,
           customGitUrl: gitUrl,
-          customGitBranch: source.github.branch,
+          customGitBranch: branch,
           customGitBuildPath: source.github.composePath || "docker-compose.yaml",
           customGitSSHKeyId: orgConfig.sshKeyId,
         });
-        console.log(`   ✓ Git source [SSH (private)]: ${gitUrl}@${source.github.branch}`);
+        console.log(`   ✓ Git source [SSH (private)]: ${gitUrl}@${branch}`);
       } else {
         // Use GitHub provider for public repos
         await client.configureComposeGitHubProvider({
           composeId: compose.composeId,
           owner: source.github.owner,
           repository: source.github.repo,
-          branch: source.github.branch,
+          branch: branch,
           buildPath: source.github.composePath || "docker-compose.yaml",
         });
         console.log(`   ✓ GitHub source [HTTPS (public)]: ${source.github.owner}/${source.github.repo}`);
@@ -371,7 +372,7 @@ async function provisionCompose(
         autoDeployConfigured = await setupAutoDeploy({
           owner: source.github.owner,
           repo: source.github.repo,
-          branch: source.github.branch,
+          branch: source.github.branch || "main",
           composeId: compose.composeId,
         });
       }
