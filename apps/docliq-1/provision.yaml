@@ -9,7 +9,7 @@ spec:
     github:
       owner: tini-works
       repo: proto-medalpha
-      branch: master
+      branch: demo
   build:
     type: dockerfile
   resources:
