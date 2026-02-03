@@ -16,3 +16,4 @@ spec:
     size: M
   ports:
     - containerPort: 80
+  # Rebuild trigger: 2026-02-03
