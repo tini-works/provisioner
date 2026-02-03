@@ -9,10 +9,14 @@ spec:
     github:
       owner: tini-works
       repo: proto-medalpha
-      branch: master
+      branch: demo
   build:
     type: dockerfile
   resources:
     size: M
   ports:
     - containerPort: 80
+  healthCheck:
+    path: "/"
+    port: 80
+  # Rebuild trigger: 2026-02-03

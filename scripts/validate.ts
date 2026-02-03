@@ -265,28 +265,51 @@ async function validateFile(filePath: string): Promise<ValidationResult> {
         const isPrivate = isPrivateOrg(owner);
 
         if (isPrivate) {
-          // For private repos, use git ls-remote over SSH
-          try {
-            const proc = Bun.spawn(
-              ["git", "ls-remote", "--exit-code", `git@github.com:${owner}/${repo}.git`, "HEAD"],
-              { stdout: "pipe", stderr: "pipe" }
-            );
-            const exitCode = await proc.exited;
-
-            if (exitCode !== 0) {
-              const stderr = await new Response(proc.stderr).text();
-              errors.push({
-                type: "error",
-                message: `Private repository ${owner}/${repo} not accessible via SSH: ${stderr.trim()}`,
+          // Prefer GitHub API with token for private repos when available
+          if (Bun.env.GITHUB_TOKEN) {
+            try {
+              const response = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}`,
+                { headers: { Authorization: `token ${Bun.env.GITHUB_TOKEN}` } }
+              );
+              if (!response.ok) {
+                errors.push({
+                  type: "error",
+                  message: `GitHub repository ${owner}/${repo} not found or not accessible`,
+                  path: "/spec/source/github",
+                });
+              }
+            } catch (e) {
+              warnings.push({
+                type: "warning",
+                message: `Could not verify GitHub repository: ${e}`,
                 path: "/spec/source/github",
               });
             }
-          } catch (e) {
-            warnings.push({
-              type: "warning",
-              message: `Could not verify private repository via SSH: ${e}`,
-              path: "/spec/source/github",
-            });
+          } else {
+            // Fallback: use git ls-remote over SSH
+            try {
+              const proc = Bun.spawn(
+                ["git", "ls-remote", "--exit-code", `git@github.com:${owner}/${repo}.git`, "HEAD"],
+                { stdout: "pipe", stderr: "pipe" }
+              );
+              const exitCode = await proc.exited;
+
+              if (exitCode !== 0) {
+                const stderr = await new Response(proc.stderr).text();
+                errors.push({
+                  type: "error",
+                  message: `Private repository ${owner}/${repo} not accessible via SSH: ${stderr.trim()}`,
+                  path: "/spec/source/github",
+                });
+              }
+            } catch (e) {
+              warnings.push({
+                type: "warning",
+                message: `Could not verify private repository via SSH: ${e}`,
+                path: "/spec/source/github",
+              });
+            }
           }
         } else {
           // For public repos, use GitHub API
