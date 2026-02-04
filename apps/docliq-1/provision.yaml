@@ -16,3 +16,6 @@ spec:
     size: M
   ports:
     - containerPort: 80
+  healthCheck:
+    path: /
+    port: 80
