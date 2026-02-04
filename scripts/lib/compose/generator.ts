@@ -12,9 +12,16 @@ export interface GeneratorOptions {
   traefikImage?: string;
 }
 
+export interface SecretBinding {
+  envKey: string;
+  secretName: string;
+}
+
 export interface GeneratorResult {
   compose: ComposeFile;
   yaml: string;
+  appNames: string[];
+  secretBindings: SecretBinding[];
 }
 
 const RESOURCE_LIMITS: Record<string, { cpus: string; memory: string }> = {
@@ -59,7 +66,7 @@ function loadApps(appsRoot: string): ApplicationConfig[] {
 function buildAppService(
   app: ApplicationConfig,
   domainSuffix: string,
-  uiHost: string
+  _uiHost: string
 ): ComposeService {
   const name = app.metadata.name;
   const spec = app.spec;
@@ -233,12 +240,44 @@ function stringifyCompose(compose: ComposeFile): string {
 }
 
 /**
+ * Collect secret bindings from all apps
+ */
+function collectSecretBindings(apps: ApplicationConfig[]): SecretBinding[] {
+  const bindings: SecretBinding[] = [];
+
+  for (const app of apps) {
+    const secretRefs = app.spec.env?.secretRefs;
+    if (secretRefs) {
+      for (const ref of secretRefs) {
+        bindings.push({
+          envKey: ref.name,
+          secretName: ref.secret,
+        });
+      }
+    }
+  }
+
+  // Sort for determinism and deduplicate
+  const seen = new Set<string>();
+  return bindings
+    .sort((a, b) => a.envKey.localeCompare(b.envKey))
+    .filter((b) => {
+      const key = `${b.envKey}:${b.secretName}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+/**
  * Main entry point - generates compose bundle from apps directory
  */
 export function generateComposeBundle(options: GeneratorOptions): GeneratorResult {
   const apps = loadApps(options.appsRoot);
   const compose = buildCompose(apps, options);
   const yaml = stringifyCompose(compose);
+  const appNames = apps.map((a) => a.metadata.name).sort();
+  const secretBindings = collectSecretBindings(apps);
 
-  return { compose, yaml };
+  return { compose, yaml, appNames, secretBindings };
 }

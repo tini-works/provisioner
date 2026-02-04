@@ -1,648 +1,277 @@
 #!/usr/bin/env bun
 /**
- * Applies provision.yaml configurations to Dokploy
+ * Applies the generated ComposeStack to Dokploy
  *
- * Usage: bun run scripts/apply.ts <file1.yaml> [file2.yaml ...]
+ * Usage: bun run scripts/apply.ts [--allow-removals]
+ *
+ * This script:
+ * 1. Generates docker-compose.yaml from apps/
+ * 2. Creates/finds a single "provisioner" project in Dokploy
+ * 3. Creates/finds a "provisioner" compose in that project
+ * 4. Configures GitHub provider pointing to this repo
+ * 5. Sets environment variables from secret bindings
+ * 6. Redeploys the compose
+ * 7. Tracks app names in generated/compose.lock.json
+ *
+ * Environment variables:
+ *   DOKPLOY_API_URL        - Dokploy API URL (required)
+ *   DOKPLOY_API_KEY        - Dokploy API key (required)
+ *   PROVISIONER_REPO_OWNER - GitHub owner for this repo (required)
+ *   PROVISIONER_REPO_NAME  - GitHub repo name (required)
+ *   PROVISIONER_REPO_BRANCH - Branch to deploy from (default: "main")
+ *   TRAEFIK_IMAGE          - Traefik image (default: "traefik:v2.11")
+ *   SECRET_*               - Secrets to inject (e.g., SECRET_DATABASE_URL)
  */
 
-import { readFileSync, existsSync } from "fs";
-import { parse as parseYaml } from "yaml";
-import {
-  createDokployClient,
-  type DokployClient,
-  type ResourceSize,
-} from "./lib/dokploy-client";
-import type {
-  ProvisionConfig,
-  ApplicationConfig,
-  ComposeConfig,
-} from "./lib/types";
-import { getSubdomainFromPath } from "./lib/subdomain";
-import { getOrgConfig } from "./lib/github-orgs";
-import { setupAutoDeploy, ensureDeploySecret } from "./lib/auto-deploy";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { createHash } from "crypto";
+import { createDokployClient, type DokployClient } from "./lib/dokploy-client";
+import { generateComposeBundle } from "./lib/compose/generator";
 
+const PROJECT_NAME = "provisioner";
+const COMPOSE_NAME = "provisioner";
 const DOMAIN_SUFFIX = "apps.quickable.co";
+const UI_HOST = "p.apps.quickable.co";
+const OUT_PATH = "generated/docker-compose.yaml";
+const LOCK_PATH = "generated/compose.lock.json";
 
-interface ProvisionResult {
-  success: boolean;
-  appName: string;
-  subdomain: string;
-  applicationId?: string;
-  composeId?: string;
-  projectId?: string;
-  domain?: string;
-  error?: string;
-  autoDeployConfigured?: boolean;
+interface LockFile {
+  version: number;
+  apps: string[];
+  composeHash: string;
+  generatedAt: string;
 }
 
 /**
- * Provision an Application to Dokploy
+ * Hash content for change detection
  */
-async function provisionApplication(
-  client: DokployClient,
-  config: ProvisionConfig,
-  subdomain: string
-): Promise<ProvisionResult> {
-  const appName = config.metadata.name;
-  const fullDomain = `${subdomain}.${DOMAIN_SUFFIX}`;
+function hash(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
 
+/**
+ * Load previous app list from lock file
+ */
+function loadPreviousApps(): string[] {
+  if (!existsSync(LOCK_PATH)) return [];
   try {
-    console.log(`\n📦 Provisioning Application: ${appName}`);
-    console.log(`   Subdomain: ${fullDomain}`);
-
-    const projectName = `provisioner-${subdomain}`;
-    let project: { projectId: string };
-    let app: { applicationId: string };
-    let isUpdate = false;
-
-    // 1. Check if project already exists (idempotent)
-    const existingProject = await client.findProjectByName(projectName);
-
-    if (existingProject) {
-      // Project exists - find existing app and update
-      console.log(`   → Found existing project: ${existingProject.projectId}`);
-      project = existingProject;
-      isUpdate = true;
-
-      // Get project details to find the application
-      const projectDetails = await client.getProject(existingProject.projectId);
-      const existingApp = projectDetails.applications?.[0];
-
-      if (existingApp) {
-        app = existingApp;
-        console.log(`   → Found existing application: ${app.applicationId}`);
-      } else {
-        // Project exists but no app - create one
-        const environment = projectDetails.environments?.[0];
-        if (!environment) {
-          throw new Error("No environment found in existing project");
-        }
-        console.log("   → Creating application in existing project...");
-        app = await client.createApplication({
-          name: appName,
-          environmentId: environment.environmentId,
-          description: config.metadata.description,
-        });
-        console.log(`   ✓ Application created: ${app.applicationId}`);
-      }
-    } else {
-      // Create new project and application
-      console.log("   → Creating project...");
-      const result = await client.createProject({
-        name: projectName,
-        description: config.metadata.description || `Provisioned app: ${appName}`,
-      });
-      project = result.project;
-      console.log(`   ✓ Project created: ${project.projectId}`);
-
-      console.log("   → Creating application...");
-      app = await client.createApplication({
-        name: appName,
-        environmentId: result.environment.environmentId,
-        description: config.metadata.description,
-      });
-      console.log(`   ✓ Application created: ${app.applicationId}`);
-    }
-
-    // 4. Configure source
-    const appSpec = config.spec as ApplicationConfig["spec"];
-    const source = appSpec.source;
-
-    if (source.type === "github" && source.github) {
-      // Default branch to "main" if not specified
-      const branch = source.github.branch || "main";
-      // Check if org is configured with GitHub OAuth (preferred for private repos)
-      const orgConfig = getOrgConfig(source.github.owner);
-
-      if (orgConfig?.githubId) {
-        // Use GitHub provider with OAuth for private repos (like tech-dd/docs)
-        console.log("   → Configuring GitHub source (OAuth)...");
-        await client.updateApplication({
-          applicationId: app.applicationId,
-          sourceType: "github",
-        });
-
-        await client.configureGitHubProvider({
-          applicationId: app.applicationId,
-          repository: source.github.repo,
-          owner: source.github.owner,
-          branch: branch,
-          buildPath: source.github.path || "/",
-          githubId: orgConfig.githubId,
-        });
-        console.log(`   ✓ GitHub source [OAuth]: ${source.github.owner}/${source.github.repo}@${branch}`);
-      } else if (orgConfig?.sshKeyId) {
-        // Fallback: Use custom Git provider with SSH for private repos
-        console.log("   → Configuring Git source (SSH)...");
-        await client.updateApplication({
-          applicationId: app.applicationId,
-          sourceType: "git",
-        });
-
-        const gitUrl = `git@github.com:${source.github.owner}/${source.github.repo}.git`;
-        await client.configureCustomGitProvider({
-          applicationId: app.applicationId,
-          customGitUrl: gitUrl,
-          customGitBranch: branch,
-          customGitBuildPath: source.github.path || "/",
-          customGitSSHKeyId: orgConfig.sshKeyId,
-        });
-        console.log(`   ✓ Git source [SSH]: ${gitUrl}@${branch}`);
-      } else {
-        // Public repos use HTTPS
-        console.log("   → Configuring Git source (HTTPS)...");
-        await client.updateApplication({
-          applicationId: app.applicationId,
-          sourceType: "git",
-        });
-
-        const gitUrl = `https://github.com/${source.github.owner}/${source.github.repo}.git`;
-        await client.configureCustomGitProvider({
-          applicationId: app.applicationId,
-          customGitUrl: gitUrl,
-          customGitBranch: branch,
-          customGitBuildPath: source.github.path || "/",
-        });
-        console.log(`   ✓ Git source [HTTPS]: ${gitUrl}@${branch}`);
-      }
-    } else if (source.type === "docker" && source.docker) {
-      console.log("   → Configuring Docker source...");
-      await client.configureDockerProvider({
-        applicationId: app.applicationId,
-        dockerImage: `${source.docker.image}:${source.docker.tag}`,
-      });
-      console.log(`   ✓ Docker image: ${source.docker.image}:${source.docker.tag}`);
-    }
-
-    // 5. Configure build type (default: dockerfile)
-    const buildType = appSpec.build?.type || "dockerfile";
-    console.log("   → Configuring build type...");
-    await client.configureBuildType({
-      applicationId: app.applicationId,
-      buildType: buildType,
-      dockerfile: appSpec.build?.dockerfile || "Dockerfile",
-      dockerContextPath: appSpec.build?.context || ".",
-      dockerBuildStage: "",
-    });
-    console.log(`   ✓ Build type: ${buildType}`);
-
-    // 6. Set resource limits (default: S)
-    const size = (appSpec.resources?.size || "S") as ResourceSize;
-    console.log("   → Setting resource limits...");
-    await client.setResourceLimits(app.applicationId, size);
-    console.log(`   ✓ Resources: Size ${size}`);
-
-    // 7. Configure environment variables
-    if (appSpec.env) {
-      console.log("   → Configuring environment...");
-      const envVars: string[] = [];
-
-      // Add static env vars
-      for (const [key, value] of Object.entries(appSpec.env)) {
-        if (key !== "secretRefs" && typeof value === "string") {
-          envVars.push(`${key}=${value}`);
-        }
-      }
-
-      // Add secret refs (these should be passed from GitHub Actions secrets)
-      if (appSpec.env.secretRefs) {
-        for (const ref of appSpec.env.secretRefs) {
-          const secretValue = Bun.env[`SECRET_${ref.secret}`];
-          if (secretValue) {
-            envVars.push(`${ref.name}=${secretValue}`);
-          } else {
-            console.log(`   ⚠️  Secret ${ref.secret} not found in environment`);
-          }
-        }
-      }
-
-      if (envVars.length > 0) {
-        await client.configureEnvironment({
-          applicationId: app.applicationId,
-          env: envVars.join("\n"),
-        });
-        console.log(`   ✓ Environment: ${envVars.length} variable(s)`);
-      }
-    }
-
-    // 8. Create domain (skip if updating - domain already exists)
-    if (!isUpdate) {
-      console.log("   → Creating domain...");
-      const port = appSpec.ports?.[0]?.containerPort || 3000;
-      await client.createDomain({
-        applicationId: app.applicationId,
-        host: fullDomain,
-        port,
-        https: false,
-        certificateType: "none",
-      });
-      console.log(`   ✓ Domain: https://${fullDomain}`);
-    } else {
-      console.log(`   ✓ Domain exists: https://${fullDomain}`);
-    }
-
-    // 9. Trigger deployment (redeploy for updates)
-    console.log(isUpdate ? "   → Triggering redeploy..." : "   → Triggering deployment...");
-    if (isUpdate) {
-      await client.redeployApplication(app.applicationId);
-    } else {
-      await client.deployApplication({
-        applicationId: app.applicationId,
-        title: "Initial deployment via provisioner",
-      });
-    }
-    console.log("   ✓ Deployment triggered");
-
-    // 10. Setup auto-deploy for tini-works repos
-    let autoDeployConfigured = false;
-    if (source.type === "github" && source.github) {
-      const secretOk = await ensureDeploySecret(source.github.owner, source.github.repo);
-      if (secretOk) {
-        autoDeployConfigured = await setupAutoDeploy({
-          owner: source.github.owner,
-          repo: source.github.repo,
-          branch: source.github.branch || "main",
-          applicationId: app.applicationId,
-          subdomain: subdomain,
-          dockerfile: appSpec.build?.dockerfile || "Dockerfile",
-          context: appSpec.build?.context || ".",
-        });
-      }
-    }
-
-    return {
-      success: true,
-      appName,
-      subdomain,
-      applicationId: app.applicationId,
-      projectId: project.projectId,
-      autoDeployConfigured,
-      domain: `https://${fullDomain}`,
-    };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.log(`   ❌ Error: ${message}`);
-    return {
-      success: false,
-      appName,
-      subdomain,
-      error: message,
-    };
+    const content = readFileSync(LOCK_PATH, "utf-8");
+    const parsed = JSON.parse(content) as Partial<LockFile>;
+    return parsed.apps || [];
+  } catch {
+    return [];
   }
 }
 
 /**
- * Provision a ComposeStack to Dokploy
+ * Save lock file with app names and hash
  */
-async function provisionCompose(
+function saveLock(apps: string[], composeHash: string): void {
+  mkdirSync("generated", { recursive: true });
+  const lock: LockFile = {
+    version: 1,
+    apps,
+    composeHash,
+    generatedAt: new Date().toISOString(),
+  };
+  writeFileSync(LOCK_PATH, JSON.stringify(lock, null, 2));
+}
+
+/**
+ * Find or create the provisioner project
+ */
+async function ensureProject(
+  client: DokployClient
+): Promise<{ projectId: string; environmentId: string }> {
+  // Try to find existing project
+  const existing = await client.findProjectByName(PROJECT_NAME);
+
+  if (existing) {
+    console.log(`   Found existing project: ${existing.projectId}`);
+    const details = await client.getProject(existing.projectId);
+    const env = details.environments?.[0];
+    if (!env) {
+      throw new Error("No environment found in existing project");
+    }
+    return { projectId: existing.projectId, environmentId: env.environmentId };
+  }
+
+  // Create new project
+  console.log("   Creating project...");
+  const result = await client.createProject({
+    name: PROJECT_NAME,
+    description: "Provisioner ComposeStack - all apps in one compose",
+  });
+  console.log(`   Created project: ${result.project.projectId}`);
+  return {
+    projectId: result.project.projectId,
+    environmentId: result.environment.environmentId,
+  };
+}
+
+/**
+ * Find or create the provisioner compose
+ */
+async function ensureCompose(
   client: DokployClient,
-  config: ProvisionConfig,
-  subdomain: string
-): Promise<ProvisionResult> {
-  const appName = config.metadata.name;
-  const fullDomain = `${subdomain}.${DOMAIN_SUFFIX}`;
+  projectId: string,
+  environmentId: string
+): Promise<{ composeId: string; isNew: boolean }> {
+  // Get project details to find existing compose
+  const details = await client.getProject(projectId);
+  const existingCompose = details.compose?.find((c) => c.name === COMPOSE_NAME);
 
-  try {
-    console.log(`\n📦 Provisioning ComposeStack: ${appName}`);
-    console.log(`   Subdomain: ${fullDomain}`);
-
-    const projectName = `provisioner-${subdomain}`;
-    let project: { projectId: string };
-    let compose: { composeId: string };
-    let isUpdate = false;
-
-    // 1. Check if project already exists (idempotent)
-    const existingProject = await client.findProjectByName(projectName);
-
-    if (existingProject) {
-      // Project exists - find existing compose and update
-      console.log(`   → Found existing project: ${existingProject.projectId}`);
-      project = existingProject;
-      isUpdate = true;
-
-      // Get project details to find the compose
-      const projectDetails = await client.getProject(existingProject.projectId);
-      const existingCompose = projectDetails.compose?.[0];
-
-      if (existingCompose) {
-        compose = existingCompose;
-        console.log(`   → Found existing compose: ${compose.composeId}`);
-      } else {
-        // Project exists but no compose - create one
-        const environment = projectDetails.environments?.[0];
-        if (!environment) {
-          throw new Error("No environment found in existing project");
-        }
-        console.log("   → Creating compose in existing project...");
-        compose = await client.createCompose({
-          name: appName,
-          environmentId: environment.environmentId,
-          description: config.metadata.description,
-          composeType: "docker-compose",
-        });
-        console.log(`   ✓ Compose created: ${compose.composeId}`);
-      }
-    } else {
-      // Create new project and compose
-      console.log("   → Creating project...");
-      const result = await client.createProject({
-        name: projectName,
-        description: config.metadata.description || `Provisioned compose: ${appName}`,
-      });
-      project = result.project;
-      console.log(`   ✓ Project created: ${project.projectId}`);
-
-      console.log("   → Creating compose stack...");
-      compose = await client.createCompose({
-        name: appName,
-        environmentId: result.environment.environmentId,
-        description: config.metadata.description,
-        composeType: "docker-compose",
-      });
-      console.log(`   ✓ Compose created: ${compose.composeId}`);
-    }
-
-    // 4. Configure source
-    const composeSpec = config.spec as ComposeConfig["spec"];
-    const source = composeSpec.source;
-
-    if (source.type === "github" && source.github) {
-      // Default branch to "main" if not specified
-      const branch = source.github.branch || "main";
-      console.log("   → Configuring Git source...");
-
-      // Check if org is configured for SSH access (private repos)
-      const orgConfig = getOrgConfig(source.github.owner);
-
-      if (orgConfig) {
-        // Use custom git provider with SSH for private repos
-        const gitUrl = `git@github.com:${source.github.owner}/${source.github.repo}.git`;
-        await client.configureComposeCustomGitProvider({
-          composeId: compose.composeId,
-          customGitUrl: gitUrl,
-          customGitBranch: branch,
-          customGitBuildPath: source.github.composePath || "docker-compose.yaml",
-          customGitSSHKeyId: orgConfig.sshKeyId,
-        });
-        console.log(`   ✓ Git source [SSH (private)]: ${gitUrl}@${branch}`);
-      } else {
-        // Use GitHub provider for public repos
-        await client.configureComposeGitHubProvider({
-          composeId: compose.composeId,
-          owner: source.github.owner,
-          repository: source.github.repo,
-          branch: branch,
-          buildPath: source.github.composePath || "docker-compose.yaml",
-        });
-        console.log(`   ✓ GitHub source [HTTPS (public)]: ${source.github.owner}/${source.github.repo}`);
-      }
-    }
-
-    // 5. Configure environment variables
-    if (composeSpec.env) {
-      console.log("   → Configuring environment...");
-      const envVars: string[] = [];
-
-      for (const [key, value] of Object.entries(composeSpec.env)) {
-        if (key !== "secretRefs" && typeof value === "string") {
-          envVars.push(`${key}=${value}`);
-        }
-      }
-
-      if (composeSpec.env.secretRefs) {
-        for (const ref of composeSpec.env.secretRefs) {
-          const secretValue = Bun.env[`SECRET_${ref.secret}`];
-          if (secretValue) {
-            envVars.push(`${ref.name}=${secretValue}`);
-          }
-        }
-      }
-
-      if (envVars.length > 0) {
-        await client.configureComposeEnvironment({
-          composeId: compose.composeId,
-          env: envVars.join("\n"),
-        });
-        console.log(`   ✓ Environment: ${envVars.length} variable(s)`);
-      }
-    }
-
-    // 6. Create domain for ingress service (skip if updating)
-    if (!isUpdate) {
-      console.log("   → Creating domain...");
-      await client.createDomain({
-        composeId: compose.composeId,
-        host: fullDomain,
-        port: composeSpec.ingress.port,
-        https: false,
-        certificateType: "none",
-        serviceName: composeSpec.ingress.service,
-      });
-      console.log(`   ✓ Domain: https://${fullDomain} → ${composeSpec.ingress.service}:${composeSpec.ingress.port}`);
-    } else {
-      console.log(`   ✓ Domain exists: https://${fullDomain}`);
-    }
-
-    // 7. Trigger deployment (redeploy for updates)
-    console.log(isUpdate ? "   → Triggering redeploy..." : "   → Triggering deployment...");
-    if (isUpdate) {
-      await client.redeployCompose(compose.composeId);
-    } else {
-      await client.deployCompose({
-        composeId: compose.composeId,
-        title: "Initial deployment via provisioner",
-      });
-    }
-    console.log("   ✓ Deployment triggered");
-
-    // 8. Setup auto-deploy for tini-works repos
-    let autoDeployConfigured = false;
-    if (source.type === "github" && source.github) {
-      const secretOk = await ensureDeploySecret(source.github.owner, source.github.repo);
-      if (secretOk) {
-        autoDeployConfigured = await setupAutoDeploy({
-          owner: source.github.owner,
-          repo: source.github.repo,
-          branch: source.github.branch || "main",
-          composeId: compose.composeId,
-        });
-      }
-    }
-
-    return {
-      success: true,
-      appName,
-      subdomain,
-      composeId: compose.composeId,
-      projectId: project.projectId,
-      domain: `https://${fullDomain}`,
-      autoDeployConfigured,
-    };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.log(`   ❌ Error: ${message}`);
-    return {
-      success: false,
-      appName,
-      subdomain,
-      error: message,
-    };
-  }
-}
-
-/**
- * Apply a single provision.yaml file
- */
-async function applyFile(
-  client: DokployClient,
-  filePath: string
-): Promise<ProvisionResult> {
-  // Read and parse config
-  const content = readFileSync(filePath, "utf-8");
-  const config = parseYaml(content) as ProvisionConfig;
-
-  // Get subdomain from directory structure
-  const subdomain = getSubdomainFromPath(filePath);
-
-  // Provision based on kind
-  if (config.kind === "Application") {
-    return provisionApplication(client, config, subdomain);
-  } else if (config.kind === "ComposeStack") {
-    return provisionCompose(client, config, subdomain);
-  } else {
-    return {
-      success: false,
-      appName: config.metadata?.name || "unknown",
-      subdomain,
-      error: `Unknown kind: ${config.kind}`,
-    };
-  }
-}
-
-/**
- * Print deployment instructions for auto-update
- */
-function printAutoUpdateInstructions(results: ProvisionResult[]) {
-  const successful = results.filter((r) => r.success);
-  const needsManualSetup = successful.filter((r) => !r.autoDeployConfigured);
-
-  // Print auto-configured apps
-  const autoConfigured = successful.filter((r) => r.autoDeployConfigured);
-  if (autoConfigured.length > 0) {
-    console.log("\n" + "═".repeat(60));
-    console.log("🚀 AUTO-DEPLOY CONFIGURED");
-    console.log("═".repeat(60));
-    for (const result of autoConfigured) {
-      console.log(`   ✓ ${result.appName} → ${result.domain}`);
-      console.log(`     Pushes to main will auto-deploy`);
-    }
+  if (existingCompose) {
+    console.log(`   Found existing compose: ${existingCompose.composeId}`);
+    return { composeId: existingCompose.composeId, isNew: false };
   }
 
-  // Print manual setup instructions for external repos
-  if (needsManualSetup.length === 0) return;
-
-  console.log("\n" + "═".repeat(60));
-  console.log("📋 MANUAL AUTO-DEPLOY SETUP REQUIRED");
-  console.log("═".repeat(60));
-
-  for (const result of needsManualSetup) {
-    const id = result.applicationId || result.composeId;
-    const type = result.applicationId ? "application" : "compose";
-
-    console.log(`\n🔧 ${result.appName} (${result.subdomain})`);
-    console.log("─".repeat(40));
-    console.log(`   ${type}Id: ${id}`);
-    console.log(`   Domain: ${result.domain}`);
-    console.log("\n   To enable auto-deploy, add this to your source repo:");
-    console.log("\n   1. Add repository secret DOKPLOY_DEPLOY_TOKEN");
-    console.log("   2. Add repository variable DOKPLOY_APP_ID = " + id);
-    console.log("   3. Create .github/workflows/deploy.yaml:");
-    console.log(`
-   name: Deploy to apps.quickable.co
-   on:
-     push:
-       branches: [main]
-   jobs:
-     deploy:
-       runs-on: ubuntu-latest
-       steps:
-         - uses: tini-works/provisioner/deploy-action@main
-           with:
-             ${type}-id: \${{ vars.DOKPLOY_APP_ID }}
-             api-token: \${{ secrets.DOKPLOY_DEPLOY_TOKEN }}
-`);
-  }
+  // Create new compose
+  console.log("   Creating compose...");
+  const compose = await client.createCompose({
+    name: COMPOSE_NAME,
+    environmentId,
+    description: "Generated from apps/ manifests",
+    composeType: "docker-compose",
+  });
+  console.log(`   Created compose: ${compose.composeId}`);
+  return { composeId: compose.composeId, isNew: true };
 }
 
 /**
  * Main entry point
  */
 async function main() {
-  const args = process.argv.slice(2);
+  const allowRemovals = Bun.argv.includes("--allow-removals");
 
-  if (args.length === 0) {
-    console.error("Usage: bun run scripts/apply.ts <file1.yaml> [file2.yaml ...]");
-    console.error("\nEnvironment variables:");
-    console.error("  DOKPLOY_API_URL  - Dokploy API URL (required)");
-    console.error("  DOKPLOY_API_KEY  - Dokploy API key (required)");
-    console.error("  SECRET_*         - Secrets to inject (e.g., SECRET_DATABASE_URL)");
-    process.exit(1);
+  console.log("ComposeStack Apply");
+  console.log("=".repeat(60));
+
+  // Generate compose bundle
+  console.log("\n1. Generating compose from apps/...");
+  const bundle = generateComposeBundle({
+    appsRoot: "apps",
+    domainSuffix: DOMAIN_SUFFIX,
+    uiHost: UI_HOST,
+    traefikImage: Bun.env.TRAEFIK_IMAGE || "traefik:v2.11",
+  });
+
+  console.log(`   Apps: ${bundle.appNames.join(", ") || "(none)"}`);
+  if (bundle.secretBindings.length > 0) {
+    console.log(`   Secret bindings: ${bundle.secretBindings.map((s) => s.envKey).join(", ")}`);
   }
 
-  console.log("🚀 Provisioner Apply");
-  console.log("═".repeat(60));
+  // Check for removed apps
+  const previousApps = loadPreviousApps();
+  const removedApps = previousApps.filter((a) => !bundle.appNames.includes(a));
 
-  // Create Dokploy client
+  if (removedApps.length > 0) {
+    console.log(`\n   Removed apps detected: ${removedApps.join(", ")}`);
+    if (!allowRemovals) {
+      console.error("\nRefusing to remove apps without --allow-removals flag.");
+      console.error("Run with --allow-removals to confirm app removal.");
+      process.exit(1);
+    }
+    console.log("   --allow-removals flag present, proceeding...");
+  }
+
+  // Write compose file
+  console.log("\n2. Writing compose file...");
+  mkdirSync("generated", { recursive: true });
+  writeFileSync(OUT_PATH, bundle.yaml);
+  console.log(`   Written to: ${OUT_PATH}`);
+
+  // Connect to Dokploy
+  console.log("\n3. Connecting to Dokploy...");
   const client = createDokployClient();
 
-  // Check Dokploy connectivity
-  console.log("🔌 Checking Dokploy connection...");
   const healthy = await client.healthCheck();
   if (!healthy) {
-    console.error("❌ Cannot connect to Dokploy API");
+    console.error("Cannot connect to Dokploy API");
     process.exit(1);
   }
-  console.log("✓ Connected to Dokploy");
+  console.log("   Connected");
 
-  // Process each file
-  const results: ProvisionResult[] = [];
+  // Ensure project exists
+  console.log("\n4. Ensuring project exists...");
+  const { projectId, environmentId } = await ensureProject(client);
 
-  for (const filePath of args) {
-    if (!existsSync(filePath)) {
-      console.error(`\n❌ File not found: ${filePath}`);
-      results.push({
-        success: false,
-        appName: "unknown",
-        subdomain: getSubdomainFromPath(filePath),
-        error: "File not found",
-      });
-      continue;
-    }
+  // Ensure compose exists
+  console.log("\n5. Ensuring compose exists...");
+  const { composeId, isNew } = await ensureCompose(client, projectId, environmentId);
 
-    const result = await applyFile(client, filePath);
-    results.push(result);
+  // Configure GitHub provider
+  console.log("\n6. Configuring GitHub provider...");
+  const repoOwner = Bun.env.PROVISIONER_REPO_OWNER;
+  const repoName = Bun.env.PROVISIONER_REPO_NAME;
+  const repoBranch = Bun.env.PROVISIONER_REPO_BRANCH || "main";
+
+  if (!repoOwner || !repoName) {
+    console.error("Set PROVISIONER_REPO_OWNER and PROVISIONER_REPO_NAME environment variables");
+    process.exit(1);
   }
 
-  // Print auto-update instructions
-  printAutoUpdateInstructions(results);
+  await client.configureComposeGitHubProvider({
+    composeId,
+    owner: repoOwner,
+    repository: repoName,
+    branch: repoBranch,
+    buildPath: OUT_PATH,
+  });
+  console.log(`   Configured: ${repoOwner}/${repoName}@${repoBranch}`);
+  console.log(`   Build path: ${OUT_PATH}`);
+
+  // Configure environment from secret bindings
+  console.log("\n7. Configuring environment...");
+  const envLines: string[] = [];
+
+  for (const binding of bundle.secretBindings) {
+    const secretValue = Bun.env[`SECRET_${binding.secretName}`];
+    if (secretValue) {
+      envLines.push(`${binding.envKey}=${secretValue}`);
+      console.log(`   Set: ${binding.envKey} (from SECRET_${binding.secretName})`);
+    } else {
+      console.log(`   Warning: SECRET_${binding.secretName} not found in environment`);
+    }
+  }
+
+  if (envLines.length > 0) {
+    await client.configureComposeEnvironment({
+      composeId,
+      env: envLines.join("\n"),
+    });
+    console.log(`   Configured ${envLines.length} environment variable(s)`);
+  } else {
+    console.log("   No environment variables to configure");
+  }
+
+  // Redeploy
+  console.log("\n8. Deploying...");
+  if (isNew) {
+    await client.deployCompose({
+      composeId,
+      title: "Initial deployment via provisioner",
+    });
+    console.log("   Initial deployment triggered");
+  } else {
+    await client.redeployCompose(composeId);
+    console.log("   Redeploy triggered");
+  }
+
+  // Save lock file
+  saveLock(bundle.appNames, hash(bundle.yaml));
+  console.log(`   Lock file saved: ${LOCK_PATH}`);
 
   // Summary
-  console.log("\n" + "═".repeat(60));
-  console.log("📊 SUMMARY");
-  console.log("═".repeat(60));
+  console.log("\n" + "=".repeat(60));
+  console.log("ComposeStack deployed successfully");
+  console.log("=".repeat(60));
+  console.log(`   Project:  ${PROJECT_NAME} (${projectId})`);
+  console.log(`   Compose:  ${COMPOSE_NAME} (${composeId})`);
+  console.log(`   Apps:     ${bundle.appNames.length}`);
 
-  const successful = results.filter((r) => r.success);
-  const failed = results.filter((r) => !r.success);
-
-  console.log(`   ✅ Successful: ${successful.length}`);
-  console.log(`   ❌ Failed: ${failed.length}`);
-
-  if (failed.length > 0) {
-    console.log("\n   Failed deployments:");
-    for (const result of failed) {
-      console.log(`   - ${result.subdomain}: ${result.error}`);
-    }
-    process.exit(1);
+  if (removedApps.length > 0) {
+    console.log(`   Removed:  ${removedApps.join(", ")}`);
   }
 
   process.exit(0);
