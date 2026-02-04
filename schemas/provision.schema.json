@@ -289,9 +289,23 @@
         }
       }
     },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hostnames": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9.-]+\\.apps\\.quickable\\.co$"
+          },
+          "minItems": 1
+        }
+      }
+    },
     "applicationSpec": {
       "type": "object",
-      "required": ["source", "resources"],
+      "required": ["source", "resources", "ports", "healthCheck"],
       "additionalProperties": false,
       "properties": {
         "source": { "$ref": "#/$defs/source" },
@@ -304,6 +318,7 @@
           "minItems": 1
         },
         "healthCheck": { "$ref": "#/$defs/healthCheck" },
+        "routing": { "$ref": "#/$defs/routing" },
         "autoDeploy": {
           "type": "boolean",
           "default": true,

@@ -352,15 +352,46 @@ async function validateFile(filePath: string): Promise<ValidationResult> {
     }
   }
 
-  // Health check warning
+  // Health check requirement for Application
   if (config.kind === "Application") {
-    const appSpec = config.spec as { healthCheck?: unknown };
+    const appSpec = config.spec as { healthCheck?: { path?: string; port?: number }; ports?: { containerPort: number }[] };
     if (!appSpec.healthCheck) {
-      warnings.push({
-        type: "warning",
-        message: "No health check defined - consider adding one for reliability",
+      errors.push({
+        type: "error",
+        message: "healthCheck is required for Application services",
         path: "/spec/healthCheck",
       });
+    } else if (!appSpec.ports?.some((p) => p.containerPort === appSpec.healthCheck?.port)) {
+      errors.push({
+        type: "error",
+        message: "healthCheck.port must match one of spec.ports.containerPort",
+        path: "/spec/healthCheck/port",
+      });
+    }
+  }
+
+  // App name rule: prevent double "-p"
+  if (subdomainName && subdomainName.endsWith("-p")) {
+    errors.push({
+      type: "error",
+      message: "App name must not end with '-p' because '-p' is appended automatically",
+      path: "/metadata/name",
+    });
+  }
+
+  // Routing hostname validation
+  if (config.kind === "Application") {
+    const appSpec = config.spec as { routing?: { hostnames?: string[] } };
+    if (appSpec.routing?.hostnames) {
+      for (const host of appSpec.routing.hostnames) {
+        if (!host.endsWith(".apps.quickable.co")) {
+          errors.push({
+            type: "error",
+            message: `Routing hostname '${host}' must end with .apps.quickable.co`,
+            path: "/spec/routing/hostnames",
+          });
+        }
+      }
     }
   }
 

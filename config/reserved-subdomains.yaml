@@ -6,6 +6,7 @@ reserved:
   - www
   - api
   - admin
+  - p
   - dashboard
   - console
   - portal
