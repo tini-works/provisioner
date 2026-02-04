@@ -30,6 +30,7 @@ interface Domain {
 interface Deployment {
   deploymentId: string;
   title: string;
+  description?: string;
   status: string;
   errorMessage?: string;
   createdAt: string;
@@ -104,6 +105,19 @@ function formatDate(dateStr: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function extractCommitHash(description?: string): string | null {
+  if (!description) return null;
+  const match = description.match(/Commit:\s*([a-f0-9]+)/i);
+  return match ? match[1] : null;
+}
+
+function parseCommitMessage(title: string): { subject: string; body: string | null } {
+  const lines = title.split("\n");
+  const subject = lines[0] || "Deployment";
+  const body = lines.slice(1).join("\n").trim() || null;
+  return { subject, body };
 }
 
 const styles = `
@@ -429,12 +443,8 @@ const styles = `
   }
 
   .deployment-item {
-    display: grid;
-    grid-template-columns: 100px auto 1fr 80px;
-    gap: 16px;
-    padding: 12px 14px;
+    padding: 14px 16px;
     background: var(--bg-subtle);
-    align-items: center;
     font-size: 13px;
   }
 
@@ -450,9 +460,52 @@ const styles = `
     border-radius: 8px;
   }
 
+  .deployment-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
   .deployment-time {
     font-size: 12px;
     color: var(--text-muted);
+  }
+
+  .deployment-hash {
+    font-size: 12px;
+    color: var(--text-subtle);
+    background: var(--bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .deployment-hash a {
+    color: var(--text-subtle);
+    text-decoration: none;
+  }
+
+  .deployment-hash a:hover {
+    color: var(--text-muted);
+    text-decoration: underline;
+  }
+
+  .deployment-message {
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .deployment-message-title {
+    font-weight: 500;
+  }
+
+  .deployment-message-body {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 4px;
   }
 
   .deployment-status {
@@ -475,19 +528,6 @@ const styles = `
   .deployment-status.error .dot { background: var(--error); }
   .deployment-status.running { color: var(--warning); }
   .deployment-status.running .dot { background: var(--warning); }
-
-  .deployment-title {
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .deployment-duration {
-    text-align: right;
-    font-size: 12px;
-    color: var(--text-subtle);
-  }
 
   .deployment-error {
     grid-column: 1 / -1;
@@ -685,22 +725,36 @@ app.get("/", async (c) => {
                   <h2 class="section-title">Deployments</h2>
                   ${selectedApp.deployments.length > 0 ? html`
                     <div class="deployment-list">
-                      ${selectedApp.deployments.map(d => html`
-                        <div class="deployment-item">
-                          <span class="deployment-time">${formatDate(d.createdAt)}</span>
-                          <span class="deployment-status ${d.status}">
-                            <span class="dot"></span>
-                            ${d.status}
-                          </span>
-                          <span class="deployment-title">${(d.title || "Deployment").split("\n")[0].slice(0, 50)}</span>
-                          <span class="deployment-duration">
-                            ${d.finishedAt ? timeAgo(d.finishedAt) : "—"}
-                          </span>
-                          ${d.errorMessage ? html`
-                            <div class="deployment-error">${d.errorMessage}</div>
-                          ` : ''}
-                        </div>
-                      `)}
+                      ${selectedApp.deployments.map(d => {
+                        const commit = parseCommitMessage(d.title || "Deployment");
+                        const hash = extractCommitHash(d.description);
+                        const repoUrl = selectedApp.owner && selectedApp.repository
+                          ? `https://github.com/${selectedApp.owner}/${selectedApp.repository}`
+                          : null;
+                        return html`
+                          <div class="deployment-item">
+                            <div class="deployment-header">
+                              <span class="deployment-status ${d.status}">
+                                <span class="dot"></span>
+                                ${d.status}
+                              </span>
+                              <span class="deployment-time">${formatDate(d.createdAt)}</span>
+                              ${hash ? html`
+                                <span class="deployment-hash">
+                                  ${repoUrl ? html`<a href="${repoUrl}/commit/${hash}" target="_blank">${hash.slice(0, 7)}</a>` : hash.slice(0, 7)}
+                                </span>
+                              ` : ''}
+                            </div>
+                            <div class="deployment-message">
+                              <div class="deployment-message-title">${commit.subject}</div>
+                              ${commit.body ? html`<div class="deployment-message-body">${commit.body}</div>` : ''}
+                            </div>
+                            ${d.errorMessage ? html`
+                              <div class="deployment-error">${d.errorMessage}</div>
+                            ` : ''}
+                          </div>
+                        `;
+                      })}
                     </div>
                   ` : html`
                     <div style="color: var(--text-subtle); font-size: 13px;">No deployments yet</div>
