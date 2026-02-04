@@ -66,6 +66,10 @@ export interface HealthCheck {
   intervalSeconds?: number;
 }
 
+export interface Routing {
+  hostnames?: string[];
+}
+
 export interface Ingress {
   service: string;
   port: number;
@@ -78,6 +82,7 @@ export interface ApplicationSpec {
   env?: Env;
   ports?: Port[];
   healthCheck?: HealthCheck;
+  routing?: Routing;
   autoDeploy?: boolean;
 }
 
