@@ -107,7 +107,7 @@ function formatDate(dateStr: string): string {
 }
 
 const styles = `
-  @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -122,10 +122,11 @@ const styles = `
     --accent: #22c55e;
     --error: #ef4444;
     --warning: #f59e0b;
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   }
 
   body {
-    font-family: 'Inter', -apple-system, sans-serif;
+    font-family: var(--font);
     background: var(--bg);
     color: var(--text);
     line-height: 1.5;
@@ -191,8 +192,7 @@ const styles = `
   .stat-dot.error { background: var(--error); }
 
   .stat-value {
-    font-family: 'Geist Mono', monospace;
-    font-weight: 500;
+    font-weight: 600;
   }
 
   .stat-label {
@@ -259,7 +259,6 @@ const styles = `
   .app-time {
     font-size: 11px;
     color: var(--text-subtle);
-    font-family: 'Geist Mono', monospace;
     flex-shrink: 0;
   }
 
@@ -380,7 +379,8 @@ const styles = `
   }
 
   .info-value.mono {
-    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    letter-spacing: -0.01em;
   }
 
   .domain-list {
@@ -408,8 +408,7 @@ const styles = `
   .domain-chip a {
     color: var(--text);
     text-decoration: none;
-    font-family: 'Geist Mono', monospace;
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .domain-chip a:hover {
@@ -454,7 +453,6 @@ const styles = `
   }
 
   .deployment-time {
-    font-family: 'Geist Mono', monospace;
     font-size: 12px;
     color: var(--text-muted);
   }
@@ -489,7 +487,6 @@ const styles = `
 
   .deployment-duration {
     text-align: right;
-    font-family: 'Geist Mono', monospace;
     font-size: 12px;
     color: var(--text-subtle);
   }
@@ -501,7 +498,6 @@ const styles = `
     border-radius: 4px;
     font-size: 12px;
     color: #fca5a5;
-    font-family: 'Geist Mono', monospace;
     margin-top: 4px;
   }
 
