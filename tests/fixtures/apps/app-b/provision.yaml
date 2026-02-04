@@ -1,0 +1,21 @@
+apiVersion: provisioner.quickable.co/v1
+kind: Application
+metadata:
+  name: app-b
+  maintainer: "@fixture"
+spec:
+  source:
+    type: github
+    github:
+      owner: "example"
+      repo: "app-b"
+      branch: "main"
+  build:
+    type: dockerfile
+  resources:
+    size: M
+  ports:
+    - containerPort: 5000
+  healthCheck:
+    path: /ready
+    port: 5000
