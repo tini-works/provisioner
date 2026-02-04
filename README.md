@@ -1,13 +1,13 @@
 # Provisioner
 
-Deploy your app to `*.apps.quickable.co` by opening a PR.
+Deploy your app to `*-p.apps.quickable.co` by opening a PR.
 
 ## Steps
 
 1. Create `apps/<your-subdomain>.yaml`
 2. Open a PR
 3. Merge after approval
-4. Your app is live at `https://<your-subdomain>.apps.quickable.co`
+4. Your app is live at `https://<your-subdomain>-p.apps.quickable.co`
 
 ---
 
@@ -28,7 +28,7 @@ spec:
       repo: "your-repo"
 ```
 
-> Deploys to `https://hello-world.apps.quickable.co`
+> Deploys to `https://hello-world-p.apps.quickable.co`
 
 **Defaults:** branch=main, build=dockerfile, size=S, port=3000
 
@@ -54,7 +54,7 @@ spec:
     port: 80
 ```
 
-> Deploys to `https://my-stack.apps.quickable.co`
+> Deploys to `https://my-stack-p.apps.quickable.co`
 
 **Defaults:** branch=main, composePath=docker-compose.yaml
 

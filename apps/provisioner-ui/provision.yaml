@@ -1,0 +1,24 @@
+apiVersion: provisioner.quickable.co/v1
+kind: Application
+metadata:
+  name: provisioner-ui
+  maintainer: "@platform"
+spec:
+  source:
+    type: github
+    github:
+      owner: "tini-works"
+      repo: "provisioner-ui"
+      branch: "main"
+  build:
+    type: dockerfile
+  resources:
+    size: S
+  ports:
+    - containerPort: 3000
+  healthCheck:
+    path: /health
+    port: 3000
+  routing:
+    hostnames:
+      - p.apps.quickable.co
