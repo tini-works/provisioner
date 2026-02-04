@@ -120,7 +120,7 @@ const styles = `
     --accent: #22c55e;
     --error: #ef4444;
     --warning: #f59e0b;
-    --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
   }
 
   body {
