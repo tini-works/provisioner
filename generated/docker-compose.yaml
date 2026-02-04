@@ -1,0 +1,95 @@
+networks:
+  app-docliq-1:
+    internal: true
+  app-docliq-2:
+    internal: true
+  app-test-1234:
+    internal: true
+  public: {}
+services:
+  docliq-1:
+    build:
+      context: https://github.com/tini-works/proto-medalpha.git#master
+      dockerfile: Dockerfile
+      ssh:
+        - default
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.docliq-1.entrypoints=websecure
+      - traefik.http.routers.docliq-1.rule=Host(`docliq-1-p.apps.quickable.co`)
+      - traefik.http.routers.docliq-1.tls.certresolver=letsencrypt
+      - traefik.http.services.docliq-1.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.docliq-1.loadbalancer.healthcheck.path=/
+      - traefik.http.services.docliq-1.loadbalancer.healthcheck.port=80
+      - traefik.http.services.docliq-1.loadbalancer.server.port=80
+    networks:
+      - app-docliq-1
+    restart: unless-stopped
+  docliq-2:
+    build:
+      context: https://github.com/garyctc/MedAlpha-Flow.git#main
+      dockerfile: Dockerfile
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.docliq-2.entrypoints=websecure
+      - traefik.http.routers.docliq-2.rule=Host(`docliq-2-p.apps.quickable.co`)
+      - traefik.http.routers.docliq-2.tls.certresolver=letsencrypt
+      - traefik.http.services.docliq-2.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.docliq-2.loadbalancer.healthcheck.path=/
+      - traefik.http.services.docliq-2.loadbalancer.healthcheck.port=5000
+      - traefik.http.services.docliq-2.loadbalancer.server.port=5000
+    networks:
+      - app-docliq-2
+    restart: unless-stopped
+  test-1234:
+    build:
+      context: https://github.com/tini-works/sample-app.git#main
+      dockerfile: Dockerfile
+      ssh:
+        - default
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.test-1234.entrypoints=websecure
+      - traefik.http.routers.test-1234.rule=Host(`test-1234-p.apps.quickable.co`)
+      - traefik.http.routers.test-1234.tls.certresolver=letsencrypt
+      - traefik.http.services.test-1234.loadbalancer.healthcheck.interval=30s
+      - traefik.http.services.test-1234.loadbalancer.healthcheck.path=/health
+      - traefik.http.services.test-1234.loadbalancer.healthcheck.port=3000
+      - traefik.http.services.test-1234.loadbalancer.server.port=3000
+    networks:
+      - app-test-1234
+    restart: unless-stopped
+  traefik:
+    image: traefik:v2.11
+    labels:
+      - traefik.enable=false
+    networks:
+      - app-docliq-1
+      - app-docliq-2
+      - app-test-1234
+      - public
+    ports:
+      - 80:80
+      - 443:443
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik:/etc/traefik:ro
+      - letsencrypt:/letsencrypt
+volumes:
+  letsencrypt: {}
