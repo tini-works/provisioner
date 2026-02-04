@@ -33,6 +33,7 @@ const COMPOSE_NAME = "provisioner";
 const DOMAIN_SUFFIX = "apps.quickable.co";
 const UI_HOST = "p.apps.quickable.co";
 const OUT_PATH = "generated/docker-compose.yaml";
+const BACKUP_PATH = "generated/docker-compose.yaml.bak";
 const LOCK_PATH = "generated/compose.lock.json";
 
 interface LockFile {
@@ -178,6 +179,14 @@ async function main() {
   // Write compose file
   console.log("\n2. Writing compose file...");
   mkdirSync("generated", { recursive: true });
+
+  // Backup existing compose file before writing
+  const prevYaml = existsSync(OUT_PATH) ? readFileSync(OUT_PATH, "utf-8") : null;
+  if (prevYaml) {
+    writeFileSync(BACKUP_PATH, prevYaml);
+    console.log(`   Backed up existing compose to: ${BACKUP_PATH}`);
+  }
+
   writeFileSync(OUT_PATH, bundle.yaml);
   console.log(`   Written to: ${OUT_PATH}`);
 
@@ -278,6 +287,15 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error("Fatal error:", e);
+  console.error("\nFatal error:", e);
+
+  // Restore backup if present
+  if (existsSync(BACKUP_PATH)) {
+    console.error("Restoring previous compose file from backup...");
+    const backup = readFileSync(BACKUP_PATH, "utf-8");
+    writeFileSync(OUT_PATH, backup);
+    console.error("Restored. You may need to manually redeploy if partial changes were made.");
+  }
+
   process.exit(1);
 });
