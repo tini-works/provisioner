@@ -143,6 +143,9 @@ async function provisionApplication(
         await client.updateApplication({
           applicationId: app.applicationId,
           sourceType: "github",
+          // Explicitly set buildPath — saveGithubProvider sets a separate field
+          // that can conflict with customGitBuildPath during docker builds
+          buildPath: "/",
         });
 
         await client.configureGitHubProvider({
@@ -150,7 +153,7 @@ async function provisionApplication(
           repository: source.github.repo,
           owner: source.github.owner,
           branch: branch,
-          buildPath: source.github.path || "/",
+          buildPath: "/",
           githubId: orgConfig.githubId,
         });
         console.log(`   ✓ GitHub source [OAuth]: ${source.github.owner}/${source.github.repo}@${branch}`);

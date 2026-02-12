@@ -11,11 +11,10 @@ spec:
       owner: tini-works
       repo: provisioner
       branch: main
-      path: /provisioner-ui
   build:
     type: dockerfile
-    dockerfile: Dockerfile
-    context: .
+    dockerfile: provisioner-ui/Dockerfile
+    context: provisioner-ui
   resources:
     size: S
   ports:
