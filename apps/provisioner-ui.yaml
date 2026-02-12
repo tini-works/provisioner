@@ -1,0 +1,22 @@
+apiVersion: provisioner.quickable.co/v1
+kind: Application
+metadata:
+  name: provisioner-ui
+  description: "Provisioner dashboard — lists apps, domains, deployments"
+  maintainer: "@lagz0ne"
+spec:
+  source:
+    type: github
+    github:
+      owner: tini-works
+      repo: provisioner
+      branch: main
+      path: /provisioner-ui
+  build:
+    type: dockerfile
+    dockerfile: Dockerfile
+    context: .
+  resources:
+    size: S
+  ports:
+    - containerPort: 3000

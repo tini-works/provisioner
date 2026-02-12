@@ -1,0 +1,22 @@
+name: Deploy Provisioner UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "provisioner-ui/**"
+
+jobs:
+  redeploy:
+    runs-on: self-hosted
+    steps:
+      - name: Trigger Dokploy redeploy
+        run: |
+          curl -sf -X POST "$DOKPLOY_API_URL/api/application.redeploy" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $DOKPLOY_API_KEY" \
+            -d '{"applicationId": "JSQoeaZL6pVGkPQVoVRdL"}'
+          echo "✓ Redeploy triggered for provisioner-ui"
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
