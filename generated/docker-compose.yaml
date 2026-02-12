@@ -4,9 +4,7 @@ networks:
 
 services:
   docliq-1:
-    build:
-      context: https://github.com/tini-works/proto-medalpha.git#demo
-      dockerfile: Dockerfile
+    image: nginx:alpine
     networks:
       - dokploy-network
     labels:
@@ -15,11 +13,6 @@ services:
       - traefik.http.routers.prov-docliq-1.entrypoints=websecure
       - traefik.http.routers.prov-docliq-1.tls=true
       - traefik.http.services.prov-docliq-1.loadbalancer.server.port=80
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
     restart: unless-stopped
 
   docliq-2:
@@ -32,17 +25,10 @@ services:
       - traefik.http.routers.prov-docliq-2.entrypoints=websecure
       - traefik.http.routers.prov-docliq-2.tls=true
       - traefik.http.services.prov-docliq-2.loadbalancer.server.port=5000
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
     restart: unless-stopped
 
   docliq-proto:
-    build:
-      context: https://github.com/tini-works/docliq-proto.git#main
-      dockerfile: Dockerfile
+    image: nginx:alpine
     networks:
       - dokploy-network
     labels:
@@ -51,11 +37,6 @@ services:
       - traefik.http.routers.prov-docliq-proto.entrypoints=websecure
       - traefik.http.routers.prov-docliq-proto.tls=true
       - traefik.http.services.prov-docliq-proto.loadbalancer.server.port=80
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
     restart: unless-stopped
 
   provisioner-ui:
