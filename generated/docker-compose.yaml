@@ -1,0 +1,71 @@
+networks:
+  dokploy-network:
+    external: true
+
+services:
+  docliq-1:
+    build:
+      context: https://github.com/tini-works/proto-medalpha.git#demo
+      dockerfile: Dockerfile
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.prov-docliq-1.rule=Host(`docliq-1-p.apps.quickable.co`)
+      - traefik.http.routers.prov-docliq-1.entrypoints=websecure
+      - traefik.http.routers.prov-docliq-1.tls=true
+      - traefik.http.services.prov-docliq-1.loadbalancer.server.port=80
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    restart: unless-stopped
+
+  docliq-2:
+    image: nginx:alpine
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.prov-docliq-2.rule=Host(`docliq-2-p.apps.quickable.co`)
+      - traefik.http.routers.prov-docliq-2.entrypoints=websecure
+      - traefik.http.routers.prov-docliq-2.tls=true
+      - traefik.http.services.prov-docliq-2.loadbalancer.server.port=5000
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    restart: unless-stopped
+
+  docliq-proto:
+    build:
+      context: https://github.com/tini-works/docliq-proto.git#main
+      dockerfile: Dockerfile
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.prov-docliq-proto.rule=Host(`docliq-proto-p.apps.quickable.co`)
+      - traefik.http.routers.prov-docliq-proto.entrypoints=websecure
+      - traefik.http.routers.prov-docliq-proto.tls=true
+      - traefik.http.services.prov-docliq-proto.loadbalancer.server.port=80
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    restart: unless-stopped
+
+  provisioner-ui:
+    image: nginx:alpine
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.prov-ui.rule=Host(`p.apps.quickable.co`)
+      - traefik.http.routers.prov-ui.entrypoints=websecure
+      - traefik.http.routers.prov-ui.tls=true
+      - traefik.http.services.prov-ui.loadbalancer.server.port=80
+    restart: unless-stopped
