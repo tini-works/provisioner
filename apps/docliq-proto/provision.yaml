@@ -1,0 +1,22 @@
+apiVersion: provisioner.quickable.co/v1
+kind: Application
+metadata:
+  name: docliq-proto
+  description: "DocLiq prototype application"
+  maintainer: "@lagz0ne"
+spec:
+  source:
+    type: github
+    github:
+      owner: tini-works
+      repo: docliq-proto
+      branch: main
+  build:
+    type: dockerfile
+  resources:
+    size: S
+  ports:
+    - containerPort: 80
+  healthCheck:
+    path: "/"
+    port: 80
