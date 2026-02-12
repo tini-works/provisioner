@@ -76,3 +76,59 @@ spec:
   ports:
     - containerPort: 3000
 ```
+
+### Monorepo / Subdirectory Apps
+
+For apps where the Dockerfile lives in a subdirectory (e.g., `provisioner-ui/` within this repo), do **NOT** use `source.github.path`. Instead, point `build.dockerfile` and `build.context` into the subdirectory:
+
+```yaml
+spec:
+  source:
+    type: github
+    github:
+      owner: tini-works
+      repo: provisioner
+      branch: main
+      # NO path field here
+  build:
+    type: dockerfile
+    dockerfile: provisioner-ui/Dockerfile   # relative to repo root
+    context: provisioner-ui                  # relative to repo root
+```
+
+### Dokploy Server Access
+
+- **API**: `https://apps.quickable.co` (Dokploy API)
+- **SSH**: `ssh debian@139.99.125.82 -p 22000` (use `sudo` for docker commands)
+- **Build logs**: `sudo cat /etc/dokploy/logs/<container-name>/<logfile>`
+- **List logs**: `sudo ls -t /etc/dokploy/logs/<container-name>/`
+
+### Troubleshooting
+
+**Dokploy has two separate build path fields** that can conflict:
+- `buildPath` — set by `application.saveGithubProvider` (GitHub OAuth)
+- `customGitBuildPath` — set by `application.saveCustomGitProvider` or `application.update`
+
+If a build fails with a doubled path like `code/foo/foo`, check both fields via:
+```bash
+curl -sf 'https://apps.quickable.co/api/application.one?applicationId=<ID>' \
+  -H 'x-api-key: <KEY>' | jq '{buildPath, customGitBuildPath, dockerfile, dockerContextPath}'
+```
+
+Fix via `application.update` which can set both:
+```bash
+curl -sf -X POST 'https://apps.quickable.co/api/application.update' \
+  -H 'Content-Type: application/json' -H 'x-api-key: <KEY>' \
+  -d '{"applicationId": "<ID>", "buildPath": "/", "customGitBuildPath": "/", "dockerfile": "...", "dockerContextPath": "..."}'
+```
+
+**Current Dokploy state** (provisioner project: `byP4zWZY7El3qAQ4PnMwM`):
+
+| App | applicationId | Domain |
+|-----|---------------|--------|
+| docliq-proto | `X6R8OyAFkDExdIksF_Lz2` | docliq-proto-p.apps.quickable.co |
+| docliq-1 | `qJvdUx-UADe_hfw2hP0om` | docliq-1-p.apps.quickable.co |
+| docliq-2 | `aqb6o2cba03vHa-Io7k1D` | docliq-2-p.apps.quickable.co |
+| provisioner-ui | `JSQoeaZL6pVGkPQVoVRdL` | p.apps.quickable.co |
+
+**GitHub OAuth** for `tini-works` org: `githubId: W6uKDj7mTCtzLWplO_Z5m`
