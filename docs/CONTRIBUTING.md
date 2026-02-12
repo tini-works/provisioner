@@ -58,7 +58,7 @@ Before submitting, ensure:
 7. **After merge**
    - Your app will be deployed automatically
    - Check the Actions log for deployment status
-   - Your app will be live at `https://your-subdomain.apps.quickable.co`
+   - Your app will be live at `https://your-subdomain-p.apps.quickable.co`
 
 ## PR Checklist
 

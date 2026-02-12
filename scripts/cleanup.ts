@@ -10,75 +10,68 @@
 
 import { readFileSync } from "fs";
 import { parse as parseYaml } from "yaml";
-import { basename, dirname } from "path";
 import { createDokployClient, type DokployClient } from "./lib/dokploy-client";
 import type { ProvisionConfig } from "./lib/types";
+import { getSubdomainFromPath } from "./lib/subdomain";
+
+const PROJECT_NAME = "provisioner";
 
 interface CleanupResult {
   success: boolean;
-  subdomain: string;
   appName: string;
-  projectId?: string;
+  applicationId?: string;
   error?: string;
 }
 
 /**
- * Extract subdomain from file path or config
+ * Find and delete an application by name within the shared provisioner project
  */
-function getSubdomainFromPath(filePath: string): string {
-  const dir = dirname(filePath);
-  return basename(dir);
-}
-
-/**
- * Find and delete resources by project name pattern
- */
-async function cleanupBySubdomain(
+async function cleanupApp(
   client: DokployClient,
-  subdomain: string,
-  config: ProvisionConfig
+  appName: string
 ): Promise<CleanupResult> {
-  const appName = config.metadata?.name || subdomain;
-  const projectName = `provisioner-${subdomain}`;
-
   try {
     console.log(`\n🗑️  Cleaning up: ${appName}`);
-    console.log(`   Subdomain: ${subdomain}`);
-    console.log(`   Looking for project: ${projectName}`);
 
-    // Find matching project
-    const projects = await client.listProjects();
-    const project = projects.find((p) => p.name === projectName);
-
+    // Find the provisioner project
+    const project = await client.findProjectByName(PROJECT_NAME);
     if (!project) {
-      console.log(`   ⚠️  Project not found: ${projectName}`);
-      console.log("   This may already be cleaned up or was never provisioned.");
-      return {
-        success: true,
-        subdomain,
-        appName,
-      };
+      console.log(`   ⚠️  Project "${PROJECT_NAME}" not found — nothing to clean up`);
+      return { success: true, appName };
     }
 
-    console.log(`   → Found project: ${project.projectId}`);
+    // Find the app within the project
+    const projectDetails = await client.getProject(project.projectId);
+    const environment = projectDetails.environments?.[0];
+    if (!environment) {
+      console.log(`   ⚠️  No environment in project — nothing to clean up`);
+      return { success: true, appName };
+    }
 
-    // Delete the project (cascades to applications, composes, domains)
-    console.log("   → Deleting project and all resources...");
-    await client.deleteProject(project.projectId);
-    console.log("   ✓ Project deleted");
+    const allApps = environment.applications || [];
+    const app = allApps.find((a) => a.name === appName);
+
+    if (!app) {
+      console.log(`   ⚠️  Application "${appName}" not found in project`);
+      console.log("   This may already be cleaned up or was never provisioned.");
+      return { success: true, appName };
+    }
+
+    console.log(`   → Found application: ${app.applicationId}`);
+    console.log("   → Deleting application...");
+    await client.deleteApplication(app.applicationId);
+    console.log("   ✓ Application deleted");
 
     return {
       success: true,
-      subdomain,
       appName,
-      projectId: project.projectId,
+      applicationId: app.applicationId,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.log(`   ❌ Error: ${message}`);
     return {
       success: false,
-      subdomain,
       appName,
       error: message,
     };
@@ -96,24 +89,14 @@ async function cleanupFile(
   const subdomain = getSubdomainFromPath(filePath);
 
   try {
-    // Try to read file content if not provided
     const configContent = content || readFileSync(filePath, "utf-8");
     const config = parseYaml(configContent) as ProvisionConfig;
-
-    return cleanupBySubdomain(client, subdomain, config);
-  } catch (e) {
-    // If we can't parse the file, try to cleanup by subdomain only
+    const appName = config.metadata?.name || subdomain;
+    return cleanupApp(client, appName);
+  } catch {
+    // If we can't parse the file, use subdomain as app name
     console.log(`\n🗑️  Cleaning up: ${subdomain} (config not parseable)`);
-
-    return cleanupBySubdomain(client, subdomain, {
-      apiVersion: "provisioner.quickable.co/v1",
-      kind: "Application",
-      metadata: { name: subdomain, maintainer: "@unknown" },
-      spec: {
-        source: { type: "github" },
-        resources: { size: "S" },
-      },
-    } as ProvisionConfig);
+    return cleanupApp(client, subdomain);
   }
 }
 
@@ -170,15 +153,15 @@ async function main() {
   if (successful.length > 0) {
     console.log("\n   Removed:");
     for (const result of successful) {
-      const project = result.projectId ? ` (project: ${result.projectId})` : "";
-      console.log(`   - ${result.subdomain}${project}`);
+      const id = result.applicationId ? ` (${result.applicationId})` : "";
+      console.log(`   - ${result.appName}${id}`);
     }
   }
 
   if (failed.length > 0) {
     console.log("\n   Failed:");
     for (const result of failed) {
-      console.log(`   - ${result.subdomain}: ${result.error}`);
+      console.log(`   - ${result.appName}: ${result.error}`);
     }
     process.exit(1);
   }

@@ -106,8 +106,8 @@ jobs:
           cat audit.log
 
   deprovision:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_deleted == 'true'
+    needs: [detect-changes, provision]
+    if: always() && needs.detect-changes.outputs.has_deleted == 'true'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4

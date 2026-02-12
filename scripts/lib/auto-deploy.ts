@@ -4,10 +4,10 @@
  */
 
 // Workflow for repos where Dokploy pulls from git (public repos)
-const DEPLOY_WORKFLOW_GIT = (appId: string, type: "application" | "compose") => `name: Deploy to apps.quickable.co
+const DEPLOY_WORKFLOW = (applicationId: string, branch: string) => `name: Deploy to apps.quickable.co
 on:
   push:
-    branches: [main]
+    branches: [${branch}]
   workflow_dispatch:
 
 jobs:
@@ -16,10 +16,10 @@ jobs:
     steps:
       - name: Trigger deployment
         run: |
-          curl -s -X POST "https://apps.quickable.co/api/${type}.redeploy" \\
+          curl -s -X POST "https://apps.quickable.co/api/application.redeploy" \\
             -H "Content-Type: application/json" \\
             -H "x-api-key: \${{ secrets.DOKPLOY_API_KEY }}" \\
-            -d '{"${type}Id": "${appId}"}'
+            -d '{"applicationId": "${applicationId}"}'
           echo "Deployment triggered"
 `;
 
@@ -27,8 +27,7 @@ interface SetupAutoDeployParams {
   owner: string;
   repo: string;
   branch: string;
-  applicationId?: string;
-  composeId?: string;
+  applicationId: string;
   subdomain?: string;
   dockerfile?: string;
   context?: string;
@@ -51,18 +50,9 @@ export async function setupAutoDeploy(params: SetupAutoDeployParams): Promise<bo
     repo,
     branch,
     applicationId,
-    composeId,
   } = params;
 
   if (!canSetupAutoDeploy(owner)) {
-    return false;
-  }
-
-  const type = applicationId ? "application" : "compose";
-  const id = applicationId || composeId;
-
-  if (!id) {
-    console.log("   ⚠️  No application/compose ID for auto-deploy setup");
     return false;
   }
 
@@ -78,8 +68,8 @@ export async function setupAutoDeploy(params: SetupAutoDeployParams): Promise<bo
 
     const existingSha = checkResult.stdout.toString().trim();
 
-    // Create workflow content - Dokploy builds from GitHub provider
-    const workflowContent = DEPLOY_WORKFLOW_GIT(id, type);
+    // Create workflow content
+    const workflowContent = DEPLOY_WORKFLOW(applicationId, branch);
 
     const base64Content = Buffer.from(workflowContent).toString("base64");
 

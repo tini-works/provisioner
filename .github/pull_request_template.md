@@ -12,7 +12,7 @@
 ## For New App Submissions
 
 ### Subdomain
-<!-- e.g., my-app.apps.quickable.co -->
+<!-- e.g., my-app-p.apps.quickable.co -->
 
 ### Source Repository
 <!-- Link to your source repo -->

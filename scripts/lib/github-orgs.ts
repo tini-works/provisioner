@@ -3,7 +3,9 @@
  */
 
 import { readFileSync, existsSync } from "fs";
+import { join, dirname } from "path";
 import { parse as parseYaml } from "yaml";
+import { fileURLToPath } from "url";
 
 interface OrgConfig {
   githubId?: string;  // GitHub OAuth app ID (preferred)
@@ -23,7 +25,10 @@ let cachedConfig: GitHubOrgsConfig | null = null;
 function loadConfig(): GitHubOrgsConfig {
   if (cachedConfig) return cachedConfig;
 
-  const configPath = new URL("../../config/github-orgs.yaml", import.meta.url);
+  // Use path relative to this file's directory (ESM compatible)
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const configPath = join(__dirname, "../../config/github-orgs.yaml");
 
   if (!existsSync(configPath)) {
     cachedConfig = { orgs: {} };

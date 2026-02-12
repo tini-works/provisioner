@@ -4,9 +4,9 @@
 
 export interface ProvisionConfig {
   apiVersion: "provisioner.quickable.co/v1";
-  kind: "Application" | "ComposeStack";
+  kind: "Application";
   metadata: Metadata;
-  spec: ApplicationSpec | ComposeSpec;
+  spec: ApplicationSpec;
 }
 
 export interface Metadata {
@@ -20,7 +20,6 @@ export interface GitHubSource {
   repo: string;
   branch: string;
   path?: string;
-  composePath?: string;
 }
 
 export interface DockerSource {
@@ -66,11 +65,6 @@ export interface HealthCheck {
   intervalSeconds?: number;
 }
 
-export interface Ingress {
-  service: string;
-  port: number;
-}
-
 export interface ApplicationSpec {
   source: Source;
   build?: Build;
@@ -81,22 +75,9 @@ export interface ApplicationSpec {
   autoDeploy?: boolean;
 }
 
-export interface ComposeSpec {
-  source: Source;
-  resources: Resources;
-  env?: Env;
-  ingress: Ingress;
-  autoDeploy?: boolean;
-}
-
 export interface ApplicationConfig extends ProvisionConfig {
   kind: "Application";
   spec: ApplicationSpec;
-}
-
-export interface ComposeConfig extends ProvisionConfig {
-  kind: "ComposeStack";
-  spec: ComposeSpec;
 }
 
 // Validation result types
@@ -118,17 +99,4 @@ export interface ValidationResult {
   valid: boolean;
   errors: ValidationError[];
   warnings: ValidationWarning[];
-}
-
-// Type guards
-export function isApplicationConfig(
-  config: ProvisionConfig
-): config is ApplicationConfig {
-  return config.kind === "Application";
-}
-
-export function isComposeConfig(
-  config: ProvisionConfig
-): config is ComposeConfig {
-  return config.kind === "ComposeStack";
 }

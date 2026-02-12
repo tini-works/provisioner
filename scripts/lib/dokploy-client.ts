@@ -26,7 +26,6 @@ export interface Project {
   name: string;
   description?: string;
   applications?: Application[];
-  compose?: Compose[];
   environments?: Environment[];
 }
 
@@ -37,23 +36,17 @@ export interface Application {
   projectId: string;
 }
 
-export interface Compose {
-  composeId: string;
-  appName: string;
-  name: string;
-  projectId: string;
-}
-
 export interface Domain {
   domainId: string;
   host: string;
+  port?: number;
   applicationId?: string;
-  composeId?: string;
 }
 
 export interface Environment {
   environmentId: string;
   name: string;
+  applications?: Application[];
 }
 
 // API Response wrappers (Dokploy returns nested structures)
@@ -74,17 +67,8 @@ export interface CreateApplicationRequest {
   description?: string;
 }
 
-export interface CreateComposeRequest {
-  name: string;
-  environmentId: string;
-  description?: string;
-  composeType?: "docker-compose" | "stack";
-  composeFile?: string;
-}
-
 export interface GitHubProviderRequest {
   applicationId?: string;
-  composeId?: string;
   repository: string;
   owner: string;
   branch: string;
@@ -102,7 +86,6 @@ export interface DockerProviderRequest {
 
 export interface CustomGitProviderRequest {
   applicationId?: string;
-  composeId?: string;
   customGitUrl: string;
   customGitBranch: string;
   customGitBuildPath?: string;
@@ -125,24 +108,20 @@ export interface BuildTypeRequest {
 
 export interface EnvironmentRequest {
   applicationId?: string;
-  composeId?: string;
   env?: string; // KEY=VALUE format, newline separated
   buildArgs?: string;
 }
 
 export interface CreateDomainRequest {
   applicationId?: string;
-  composeId?: string;
   host: string;
   port?: number;
   https?: boolean;
   certificateType?: "letsencrypt" | "none" | "custom";
-  serviceName?: string; // For compose
 }
 
 export interface DeployRequest {
   applicationId?: string;
-  composeId?: string;
   title?: string;
   description?: string;
 }
@@ -330,73 +309,6 @@ export class DokployClient {
   }
 
   // ==========================================================================
-  // Compose Management
-  // ==========================================================================
-
-  async createCompose(params: CreateComposeRequest): Promise<Compose> {
-    return this.request<Compose>("/compose.create", {
-      method: "POST",
-      body: JSON.stringify({
-        ...params,
-        composeType: params.composeType || "docker-compose",
-      }),
-    });
-  }
-
-  async getCompose(composeId: string): Promise<Compose> {
-    return this.request<Compose>(`/compose.one?composeId=${composeId}`);
-  }
-
-  async deleteCompose(
-    composeId: string,
-    deleteVolumes: boolean = false
-  ): Promise<void> {
-    await this.request("/compose.delete", {
-      method: "POST",
-      body: JSON.stringify({ composeId, deleteVolumes }),
-    });
-  }
-
-  async configureComposeGitHubProvider(
-    params: GitHubProviderRequest
-  ): Promise<void> {
-    await this.request("/compose.saveGithubProvider", {
-      method: "POST",
-      body: JSON.stringify(params),
-    });
-  }
-
-  async configureComposeCustomGitProvider(
-    params: CustomGitProviderRequest & { composeId: string }
-  ): Promise<void> {
-    await this.request("/compose.saveGitProvider", {
-      method: "POST",
-      body: JSON.stringify(params),
-    });
-  }
-
-  async configureComposeEnvironment(params: EnvironmentRequest): Promise<void> {
-    await this.request("/compose.saveEnvironment", {
-      method: "POST",
-      body: JSON.stringify(params),
-    });
-  }
-
-  async deployCompose(params: DeployRequest): Promise<void> {
-    await this.request("/compose.deploy", {
-      method: "POST",
-      body: JSON.stringify(params),
-    });
-  }
-
-  async redeployCompose(composeId: string): Promise<void> {
-    await this.request("/compose.redeploy", {
-      method: "POST",
-      body: JSON.stringify({ composeId }),
-    });
-  }
-
-  // ==========================================================================
   // Domain Management
   // ==========================================================================
 
@@ -417,8 +329,11 @@ export class DokployClient {
     );
   }
 
-  async getDomainsByCompose(composeId: string): Promise<Domain[]> {
-    return this.request<Domain[]>(`/domain.byComposeId?composeId=${composeId}`);
+  async updateDomain(params: { domainId: string; host: string; port?: number }): Promise<Domain> {
+    return this.request<Domain>("/domain.update", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
   }
 
   async deleteDomain(domainId: string): Promise<void> {

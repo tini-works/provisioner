@@ -16,7 +16,7 @@ body:
     id: subdomain
     attributes:
       label: Requested Subdomain
-      description: "What subdomain do you want? (will become <subdomain>.apps.quickable.co)"
+      description: "What subdomain do you want? (will become <name>-p.apps.quickable.co)"
       placeholder: "my-awesome-app"
     validations:
       required: true
@@ -58,7 +58,6 @@ body:
         - GitHub Repository with Nixpacks
         - GitHub Repository (Static Site)
         - Docker Image
-        - Docker Compose Stack
     validations:
       required: true
 

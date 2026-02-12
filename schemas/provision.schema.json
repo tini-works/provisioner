@@ -14,47 +14,16 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["Application", "ComposeStack"],
+      "const": "Application",
       "description": "Type of deployment"
     },
     "metadata": {
       "$ref": "#/$defs/metadata"
     },
     "spec": {
-      "oneOf": [
-        {
-          "if": { "properties": { "kind": { "const": "Application" } } },
-          "then": { "$ref": "#/$defs/applicationSpec" }
-        },
-        {
-          "if": { "properties": { "kind": { "const": "ComposeStack" } } },
-          "then": { "$ref": "#/$defs/composeSpec" }
-        }
-      ]
+      "$ref": "#/$defs/applicationSpec"
     }
   },
-  "allOf": [
-    {
-      "if": {
-        "properties": { "kind": { "const": "Application" } }
-      },
-      "then": {
-        "properties": {
-          "spec": { "$ref": "#/$defs/applicationSpec" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "kind": { "const": "ComposeStack" } }
-      },
-      "then": {
-        "properties": {
-          "spec": { "$ref": "#/$defs/composeSpec" }
-        }
-      }
-    }
-  ],
   "$defs": {
     "metadata": {
       "type": "object",
@@ -64,7 +33,7 @@
         "name": {
           "type": "string",
           "pattern": "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$",
-          "description": "Subdomain name (DNS-safe, 3-63 chars, lowercase alphanumeric and hyphens)"
+          "description": "Application name (DNS-safe, 3-63 chars, lowercase alphanumeric and hyphens)"
         },
         "description": {
           "type": "string",
@@ -102,10 +71,6 @@
           "type": "string",
           "default": "/",
           "description": "Subdirectory containing Dockerfile"
-        },
-        "composePath": {
-          "type": "string",
-          "description": "Path to docker-compose file (for ComposeStack)"
         }
       }
     },
@@ -273,22 +238,6 @@
         }
       }
     },
-    "ingress": {
-      "type": "object",
-      "required": ["service", "port"],
-      "additionalProperties": false,
-      "properties": {
-        "service": {
-          "type": "string",
-          "description": "Compose service name for public domain"
-        },
-        "port": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        }
-      }
-    },
     "applicationSpec": {
       "type": "object",
       "required": ["source", "resources"],
@@ -304,22 +253,6 @@
           "minItems": 1
         },
         "healthCheck": { "$ref": "#/$defs/healthCheck" },
-        "autoDeploy": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable auto-deploy on source changes"
-        }
-      }
-    },
-    "composeSpec": {
-      "type": "object",
-      "required": ["source", "resources", "ingress"],
-      "additionalProperties": false,
-      "properties": {
-        "source": { "$ref": "#/$defs/source" },
-        "resources": { "$ref": "#/$defs/resources" },
-        "env": { "$ref": "#/$defs/env" },
-        "ingress": { "$ref": "#/$defs/ingress" },
         "autoDeploy": {
           "type": "boolean",
           "default": true,

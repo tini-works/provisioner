@@ -163,37 +163,6 @@ const ajv = new Ajv({
 addFormats(ajv);
 const validateSchema = ajv.compile(schema);
 
-// Dangerous compose options to check
-const dangerousOptions = [
-  "privileged",
-  "cap_add",
-  "devices",
-  "network_mode",
-  "pid",
-  "ipc",
-  "security_opt",
-  "sysctls",
-  "userns_mode",
-  "cgroup_parent",
-];
-
-interface ComposeService {
-  privileged?: boolean;
-  cap_add?: string[];
-  devices?: string[];
-  network_mode?: string;
-  pid?: string;
-  ipc?: string;
-  security_opt?: string[];
-  sysctls?: Record<string, string> | string[];
-  userns_mode?: string;
-  cgroup_parent?: string;
-}
-
-interface ComposeFile {
-  services?: Record<string, ComposeService>;
-}
-
 /**
  * Validate a single provision.yaml file
  */
@@ -387,169 +356,11 @@ async function validateFile(filePath: string): Promise<ValidationResult> {
     }
   }
 
-  // For ComposeStack, try to fetch and validate the compose file
-  if (config.kind === "ComposeStack" && Bun.env.VALIDATE_COMPOSE === "true") {
-    const composeSpec = config.spec as { source: { github?: { owner: string; repo: string; branch: string; composePath?: string } } };
-    if (composeSpec.source.github) {
-      const { owner, repo, branch, composePath } = composeSpec.source.github;
-      const path = composePath || "docker-compose.yaml";
-
-      try {
-        const response = await fetch(
-          `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`,
-          {
-            headers: Bun.env.GITHUB_TOKEN
-              ? { Authorization: `token ${Bun.env.GITHUB_TOKEN}` }
-              : {},
-          }
-        );
-
-        if (response.ok) {
-          const composeContent = await response.text();
-          const composeFile = parseYaml(composeContent) as ComposeFile;
-
-          // Check for dangerous options in compose file
-          if (composeFile.services) {
-            for (const [serviceName, service] of Object.entries(
-              composeFile.services
-            )) {
-              const serviceIssues = checkDangerousOptions(serviceName, service);
-              errors.push(...serviceIssues.errors);
-              warnings.push(...serviceIssues.warnings);
-            }
-          }
-        } else {
-          warnings.push({
-            type: "warning",
-            message: `Could not fetch compose file from ${path}`,
-            path: "/spec/source/github/composePath",
-          });
-        }
-      } catch (e) {
-        warnings.push({
-          type: "warning",
-          message: `Error fetching compose file: ${e}`,
-          path: "/spec/source/github/composePath",
-        });
-      }
-    }
-  }
-
   return {
     valid: errors.length === 0,
     errors,
     warnings,
   };
-}
-
-/**
- * Check for dangerous Docker options in a compose service
- */
-function checkDangerousOptions(
-  serviceName: string,
-  service: ComposeService
-): { errors: ValidationError[]; warnings: ValidationWarning[] } {
-  const errors: ValidationError[] = [];
-  const warnings: ValidationWarning[] = [];
-
-  if (service.privileged === true) {
-    errors.push({
-      type: "error",
-      message: `Service '${serviceName}' uses privileged mode - this allows container escape`,
-    });
-  }
-
-  if (service.network_mode === "host") {
-    errors.push({
-      type: "error",
-      message: `Service '${serviceName}' uses host network mode - this bypasses network isolation`,
-    });
-  }
-
-  if (service.pid === "host") {
-    errors.push({
-      type: "error",
-      message: `Service '${serviceName}' uses host PID namespace - this exposes host processes`,
-    });
-  }
-
-  if (service.ipc === "host") {
-    errors.push({
-      type: "error",
-      message: `Service '${serviceName}' uses host IPC namespace - this allows host IPC access`,
-    });
-  }
-
-  if (service.userns_mode === "host") {
-    errors.push({
-      type: "error",
-      message: `Service '${serviceName}' uses host user namespace`,
-    });
-  }
-
-  if (service.cgroup_parent) {
-    errors.push({
-      type: "error",
-      message: `Service '${serviceName}' sets cgroup_parent - this can bypass resource limits`,
-    });
-  }
-
-  // Check dangerous capabilities
-  const dangerousCaps = new Set([
-    "SYS_ADMIN",
-    "SYS_PTRACE",
-    "SYS_RAWIO",
-    "SYS_MODULE",
-    "DAC_READ_SEARCH",
-    "NET_ADMIN",
-    "NET_RAW",
-    "MKNOD",
-    "AUDIT_WRITE",
-    "SETFCAP",
-  ]);
-
-  if (service.cap_add) {
-    for (const cap of service.cap_add) {
-      if (dangerousCaps.has(cap.toUpperCase())) {
-        errors.push({
-          type: "error",
-          message: `Service '${serviceName}' adds dangerous capability '${cap}'`,
-        });
-      }
-    }
-  }
-
-  if (service.devices && service.devices.length > 0) {
-    errors.push({
-      type: "error",
-      message: `Service '${serviceName}' mounts host devices - this exposes hardware`,
-    });
-  }
-
-  if (service.security_opt) {
-    for (const opt of service.security_opt) {
-      if (opt.includes("unconfined")) {
-        errors.push({
-          type: "error",
-          message: `Service '${serviceName}' uses unconfined security option '${opt}'`,
-        });
-      }
-    }
-  }
-
-  if (
-    service.sysctls &&
-    (Array.isArray(service.sysctls)
-      ? service.sysctls.length > 0
-      : Object.keys(service.sysctls).length > 0)
-  ) {
-    errors.push({
-      type: "error",
-      message: `Service '${serviceName}' modifies kernel sysctls - this affects host kernel`,
-    });
-  }
-
-  return { errors, warnings };
 }
 
 /**
@@ -597,7 +408,6 @@ async function main() {
     console.error("Usage: bun run scripts/validate.ts <file1.yaml> [file2.yaml ...]");
     console.error("\nEnvironment variables:");
     console.error("  VALIDATE_SOURCES=true  - Verify GitHub repos exist");
-    console.error("  VALIDATE_COMPOSE=true  - Fetch and validate compose files");
     console.error("  GITHUB_TOKEN=xxx       - GitHub token for API requests");
     process.exit(1);
   }

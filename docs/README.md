@@ -58,7 +58,7 @@ git push origin add-my-app
 
 ### 3. After Merge
 
-Your app will be available at `https://my-app.apps.quickable.co`
+Your app will be available at `https://my-app-p.apps.quickable.co`
 
 ## Configuration Reference
 
@@ -93,7 +93,7 @@ spec:
     size: S                 # S, M, or L (see below)
 
   env:
-    PUBLIC_URL: "https://my-app.apps.quickable.co"
+    PUBLIC_URL: "https://my-app-p.apps.quickable.co"
     secretRefs:             # Reference org secrets
       - name: DATABASE_URL
         secret: MY_APP_DATABASE_URL
@@ -107,36 +107,6 @@ spec:
     intervalSeconds: 30
 
   autoDeploy: true          # Default: true
-```
-
-### ComposeStack (Multi-Container)
-
-```yaml
-apiVersion: provisioner.quickable.co/v1
-kind: ComposeStack
-metadata:
-  name: my-stack
-  maintainer: "@github-user"
-spec:
-  source:
-    type: github
-    github:
-      owner: "org"
-      repo: "my-stack"
-      branch: "main"
-      composePath: "docker-compose.prod.yaml"
-
-  resources:
-    size: M
-
-  env:
-    secretRefs:
-      - name: POSTGRES_PASSWORD
-        secret: MY_STACK_DB_PASSWORD
-
-  ingress:
-    service: web            # Which compose service gets the domain
-    port: 80
 ```
 
 ## Resource Sizes
@@ -153,12 +123,12 @@ After your app is deployed, you can enable automatic redeployments when you push
 
 ### 1. Get Your App ID
 
-After merge, check the GitHub Actions run summary for your `applicationId` or `composeId`.
+After merge, check the GitHub Actions run summary for your `applicationId`.
 
 ### 2. Add Secrets to Your Source Repo
 
 - `DOKPLOY_DEPLOY_TOKEN`: API token for deployments (get from maintainers)
-- Repository variable `DOKPLOY_APP_ID`: Your application/compose ID
+- Repository variable `DOKPLOY_APP_ID`: Your application ID
 
 ### 3. Add Deploy Workflow
 

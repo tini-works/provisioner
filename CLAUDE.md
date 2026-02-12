@@ -2,6 +2,13 @@
 
 PR-based app provisioning for `*.apps.quickable.co` via Dokploy.
 
+## Architecture
+
+- **Single project**: All apps live in one Dokploy project called `provisioner`
+- **Domain pattern**: `{metadata.name}-p.apps.quickable.co` (the `-p` suffix distinguishes provisioner-managed apps)
+- **App configs**: `apps/<name>.yaml` or `apps/<name>/provision.yaml`
+- **Only Application kind** is supported (no ComposeStack)
+
 ## Quick Reference
 
 - **Full docs**: See [docs/README.md](docs/README.md)
@@ -12,24 +19,27 @@ PR-based app provisioning for `*.apps.quickable.co` via Dokploy.
 
 ### What This Repo Does
 
-Users submit PRs adding `apps/<subdomain>/provision.yaml` to claim subdomains on `apps.quickable.co`. On merge, GitHub Actions provisions the app to Dokploy.
+Users submit PRs adding `apps/<name>.yaml` (or `apps/<name>/provision.yaml`) to provision apps on `apps.quickable.co`. On merge, GitHub Actions provisions the app to the shared `provisioner` project in Dokploy.
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `apps/*/provision.yaml` | App configurations (one per subdomain) |
+| `apps/*.yaml` or `apps/*/provision.yaml` | App configurations |
+| `scripts/apply.ts` | Provisions apps to Dokploy (single `provisioner` project) |
+| `scripts/cleanup.ts` | Removes individual apps from `provisioner` project |
 | `scripts/validate.ts` | Schema + security validation |
-| `scripts/apply.ts` | Provisions to Dokploy API |
-| `scripts/cleanup.ts` | Removes apps when directories deleted |
-| `scripts/lib/dokploy-client.ts` | Typed Dokploy API wrapper |
+| `scripts/lib/dokploy-client.ts` | Typed Dokploy API wrapper (Application-only) |
+| `scripts/lib/types.ts` | ProvisionConfig types |
+| `scripts/list-projects.ts` | List all Dokploy projects and apps |
+| `scripts/dedupe-projects.ts` | Remove duplicate projects |
 | `schemas/provision.schema.json` | JSON Schema for validation |
 | `config/reserved-subdomains.yaml` | Blocked subdomain names |
 
 ### Workflows
 
 - **validate.yaml**: Runs on PR - validates schema, security, reserved names
-- **apply.yaml**: Runs on merge to main - provisions to Dokploy
+- **apply.yaml**: Runs on merge to main - provisions to Dokploy (deprovision waits for provision)
 
 ### Testing Locally
 

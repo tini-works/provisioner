@@ -37,6 +37,3 @@ sizes:
 
 # Default size if not specified
 default_size: S
-
-# Limits for compose stacks (applied to entire stack)
-compose_multiplier: 1.5  # Compose stacks get 1.5x the single-app limits
