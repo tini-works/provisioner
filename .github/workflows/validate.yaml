@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   detect-changes:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       changed_files: ${{ steps.changes.outputs.files }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
@@ -46,7 +46,7 @@ jobs:
   validate:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -113,7 +113,7 @@ jobs:
   check-reserved:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -150,7 +150,7 @@ jobs:
   summary:
     needs: [validate, check-reserved]
     if: always() && needs.detect-changes.outputs.has_changes == 'true'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Check results
         run: |
